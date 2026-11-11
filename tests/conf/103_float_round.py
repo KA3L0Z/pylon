@@ -1,0 +1,41 @@
+# round() and other ways of dropping decimals
+import math
+
+print("round to int:", round(2.3), round(2.7), round(-2.3), round(-2.7))
+print("half to even:", round(0.5), round(1.5), round(2.5), round(3.5), round(4.5))
+print("negative halves:", round(-0.5), round(-1.5), round(-2.5))
+print("result types:", type(round(2.5)).__name__, type(round(2.5, 0)).__name__)
+print("ndigits 0 keeps float:", round(2.5, 0), round(3.5, 0), round(7.4, 0))
+print("ndigits:", round(3.14159, 2), round(3.14159, 4), round(2.0, 3))
+print("more ndigits:", round(1234.5678, 1), round(0.123456, 3), round(9.999, 2))
+print("famous 2.675:", round(2.675, 2))
+print("binary surprises:", round(1.005, 2), round(0.125, 2), round(0.375, 2))
+print("negative ndigits:", round(1234.5678, -2), round(1250, -2), round(1350, -2))
+print("int half to even:", round(15, -1), round(25, -1), round(35, -1))
+print("round int:", round(7), round(-7), round(7, 2))
+print("round of results:", round(10 / 3, 2), round(2 / 3, 3), round(1 / 3, 5))
+print("round money:", round(19.99 * 3, 2), round(0.1 + 0.2, 2), round(4.35 * 100))
+print("round then compare:", round(0.1 + 0.2, 10) == 0.3)
+print("round big:", round(123456789.987654321, 3))
+print("round tiny:", round(0.00001234, 6), round(1e-7, 3))
+
+print("int() truncates:", int(2.7), int(-2.7), int(0.99))
+print("floor div by 1:", 2.7 // 1, -2.7 // 1)
+print("math.floor/ceil/trunc:", math.floor(2.7), math.ceil(2.1), math.trunc(-2.7))
+print("floor vs int on negatives:", math.floor(-2.5), int(-2.5), round(-2.5))
+
+values = [1.2345, 2.5, 3.14159, 10.0]
+print("round list:", [round(v, 1) for v in values])
+print("round sum:", round(sum(values), 2))
+avg = sum(values) / len(values)
+print("average:", round(avg, 3))
+print("percent:", round(7 / 9 * 100, 1))
+print("celsius:", round((98.6 - 32) * 5 / 9, 1))
+print("round up helper:", [math.ceil(v) for v in values])
+print("nearest 5:", [5 * round(n / 5) for n in [11, 12, 13, 17, 18]])
+print("nearest half:", [round(v * 2) / 2 for v in [1.2, 1.3, 1.74, 1.76]])
+
+print("format .2f:", f"{3.14159:.2f}", f"{2.0:.2f}", f"{1 / 3:.3f}", f"{2 / 3:.1f}")
+print("format .0f:", f"{2.4:.0f}", f"{2.6:.0f}", f"{-1.6:.0f}")
+print("format ties follow the binary value:", f"{2.675:.2f}", f"{1.005:.2f}", f"{2.345:.2f}")
+print("format exact ties go to even:", f"{0.5:.0f}", f"{2.5:.0f}", f"{0.125:.2f}", f"{0.375:.2f}")

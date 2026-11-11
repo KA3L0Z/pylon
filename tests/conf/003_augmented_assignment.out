@@ -1,0 +1,23 @@
++= 15
+-= 12
+*= 24
+//= 4
+**= 64
+%= 1
+/= 0.5
+&= 2
+|= 10
+^= 15
+<<= 60
+>>= 30
+str: abcdabcd
+subscript: [11, 2, 6]
+dict item: {'a': 2, 'b': 5}
+nested subscript: [[0, 0], [7, 0]]
+attribute: 12 ['x']
+list += is in place: [1, 2, 3] [1, 2, 3] True
+a = a + b rebinds: [1, 2, 3, 4] [1, 2, 3] False
+tuple += rebinds: (1, 2, 3) (1, 2)
+list *=: [1, 1, 1]
+list += str extends by chars: [1, 1, 1, 'x', 'y']
+list += tuple: [1, 1, 1, 'x', 'y', 7, 8]

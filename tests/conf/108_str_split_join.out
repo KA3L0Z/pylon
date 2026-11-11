@@ -1,0 +1,47 @@
+split default: ['the', 'quick', 'brown', 'fox']
+split strips ends: ['padded', 'words']
+split on sep: ['a', 'b', 'c']
+split keeps empties: ['a', '', 'b', ''] ['', '']
+split on one space: ['a', '', 'b']
+split multi-char sep: ['1', '2', '3']
+split maxsplit: ['a', 'b,c,d'] ['a', 'b', 'c d']
+split maxsplit keyword: ['a', 'b', 'c,d']
+split missing sep: ['abc']
+split empty string: [] ['']
+split whitespace only: []
+split tabs/newlines: ['a', 'b', 'c', 'd']
+rsplit: ['a,b,c', 'd'] ['a', 'b', 'c', 'd']
+rsplit default sep: ['one two', 'three']
+rsplit path: ['dir/sub', 'file.txt'] ['file.tar', 'gz']
+split to ints: [3, 1, 4, 1, 5]
+split unpack: key | some value: here
+word count: 4
+join: a,b,c x pq
+join empty list: ''
+join string chars: a-b-c
+join tuple/generator: 1+2 01234
+join dict keys: k1, k2
+join with newline: line1
+line2
+join numbers: 1, 2, 3
+join multi-char sep: salt and pepper and oil
+join of non-strings raises TypeError
+round trip: a-b-c a b c
+normalize spaces: too many spaces
+reverse words: three two one
+reverse each word: cba fed
+acronym: PNG
+csv row: ['ann', '30', 'bogota']
+longest word: quick
+parse pairs: {'a': 1, 'b': 2, 'c': 3}
+splitlines: ['first line', 'second line', '', 'fourth line']
+trailing newline: ['a', 'b'] ['a', 'b', '']
+splitlines edge cases: [] ['one']
+splitlines crlf: ['a', 'b']
+line count: 4
+1 'first line'
+2 'second line'
+3 ''
+4 'fourth line'
+non-empty lines: ['first line', 'second line', 'fourth line']
+words per line: [2, 2, 0, 2]

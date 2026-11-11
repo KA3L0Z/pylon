@@ -1,0 +1,50 @@
+# str methods: case changes, stripping, removeprefix / removesuffix
+s = "hello World"
+print("upper:", s.upper())
+print("lower:", s.lower())
+print("capitalize:", s.capitalize(), "ABC".capitalize(), "1abc".capitalize())
+print("title:", s.title(), "the quick-brown fox".title(), "hELLO wORLD".title())
+print("swapcase:", s.swapcase(), "PyThOn 3".swapcase())
+print("original unchanged:", s)
+print("digits/punctuation unaffected:", "abc123!?".upper(), "ABC123!?".lower())
+print("empty:", repr("".upper()), repr("".capitalize()), repr("".title()))
+print("case-insensitive compare:", "PyThon".lower() == "pYTHON".lower())
+print("chained:", "  MiXeD  ".strip().lower().capitalize())
+print("capitalize lowers the rest:", "hELLO wORLD".capitalize())
+print("swapcase twice:", "Hello".swapcase().swapcase())
+
+p = "   padded text   "
+print("strip:", repr(p.strip()))
+print("lstrip:", repr(p.lstrip()))
+print("rstrip:", repr(p.rstrip()))
+print("strip mixed whitespace:", repr(" \t\n text \n\t ".strip()))
+print("strip chars:", "xxhixx".strip("x"), "..hi!?".strip(".!?"), "abcba".strip("ab"))
+print("lstrip chars:", "000123".lstrip("0"), "xxhixx".lstrip("x"))
+print("rstrip chars:", "path///".rstrip("/"), "3.1400".rstrip("0"), "line\n".rstrip("\n") + "|")
+print("inner whitespace untouched:", repr("  a  b  ".strip()))
+print("nothing to strip:", repr("abc".strip()), repr("".strip()))
+print("strip everything:", repr("   ".strip()), repr("xxx".strip("x")))
+print("argument is a set of chars:", "www.example.com".strip("w.moc"))
+print("strip digits:", "123abc456".strip("0123456789"))
+print("rstrip newline:", repr("text\n".rstrip()), repr("text \n".rstrip("\n")))
+print("measure indentation:", len("    indented") - len("    indented".lstrip()))
+
+print("removeprefix:", "test_login".removeprefix("test_"), "login".removeprefix("test_"))
+print("removesuffix:", "report.txt".removesuffix(".txt"), "report".removesuffix(".txt"))
+print("removed only once:", "aaab".removeprefix("a"), "baaa".removesuffix("a"))
+print("removeprefix vs lstrip:", "aaab".lstrip("a"), "aaab".removeprefix("aa"))
+print("remove whole string:", repr("abc".removeprefix("abc")), repr("abc".removesuffix("abc")))
+
+names = ["  alice ", "BOB", " cHaRlIe"]
+print("clean names:", [n.strip().title() for n in names])
+print("upper list:", [n.strip().upper() for n in names])
+line = "   key = value   \n"
+key, value = line.strip().split(" = ")
+print("parsed:", repr(key), repr(value))
+print("method on literal:", "shout".upper() + "!", "Quiet".lower())
+print("case checks after change:", "abc".upper().isupper(), "ABC".lower().islower())
+sentence = "the cat sat"
+print("capitalize each word:", " ".join(w.capitalize() for w in sentence.split()))
+print("first letter upper:", sentence[0].upper() + sentence[1:])
+print("strip then compare:", " yes ".strip() == "yes", " yes " == "yes")
+print("title after digit or apostrophe:", "2nd place".title(), "it's here".title())

@@ -1,0 +1,42 @@
+text: café
+len: 4 1 4
+index/slice: é é afé éfac
+upper/lower: CAFÉ árbol ÑANDÚ
+capitalize/title: Élan vital José María
+swapcase: aÑO úNICO
+ord: 233 241 252 193
+chr: é ñ ü Á
+in: True False True
+compare: False True True
+sorted by code point: ['casa', 'zapato', 'árbol', 'ñu']
+isalpha/isalnum: True True False True
+isupper/islower: True True False
+find/count/replace: 3 2 nino
+repr: 'café' ['café', 'ñ'] {'clave': 'valor ú'}
+f-string width:     café| **café*** ñu    |
+just: ..é é.. --día--
+concat/repeat: ñññ mañana
+iterate: ['d', 'í', 'a']
+startswith/endswith: True True
+dict key: 2024
+max/min: ñ a
+code points: [225, 233, 237, 243, 250, 241]
+vowels with accents: 5
+upper/lower round trip: True
+strip accents: pinguino anejo, cancion
+escapes: True True 1
+%-format: José tiene 30 años
+splitlines: ['línea uno', 'línea dos']
+partition: ('clave', '=', 'válor')
+reverse words: comió niño el
+title each: ['Ángel', 'Óscar', 'Íñigo']
+split/join: más-o-menos
+strip: hola ñu
+zfill/len: 00é 3
+sorted words: ['manzana', 'maní', 'mañana'] ['maní', 'mañana', 'manzana']
+longest: manzana
+letter counts: {'ñ': 2, 'a': 2, 'n': 1, 'd': 1, 'ú': 1, 'e': 1, 'j': 1, 'o': 1}
+chr/ord round trip: ñ True
+str.format: Ángel y Inés     sí
+slice with accents: ón cora ó
+equality is exact: False True

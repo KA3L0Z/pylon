@@ -1,0 +1,12 @@
+  inner returned: inner done
+yield from: [1, 2, 3]
+chain: [1, 2, 'a', 'b', 0, 1, 9]
+recursive flatten: [1, 2, 3, 4, 5, 6]
+islice: [1, 2, 3, 4, 5] [12, 14, 16]
+prime with next: None
+send: 10.0 15.0 30.0
+send until return: ['a', 'b', 'c']
+pipeline: [4, 16, 36, 64, 100]
+first primes: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+shared generator state: 1 [2, 3, 4] 5
+zip stops at the shortest: [('a', 1), ('b', 2), ('c', 3)]

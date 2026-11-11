@@ -1,0 +1,37 @@
+find: 4 0 -1
+find from start: 31 17 -1
+find in range: -1 4 -1
+rfind: 31 41 -1
+index: 16 12
+index of a missing substring raises ValueError
+count: 4 2 1 0
+count is non-overlapping: 2 2
+startswith: True False True
+endswith: True False True
+in: True False True
+replace: a quick brown fox jumps over a lazy dog
+replace count: the quick br0wn f0x jumps over the lazy dog
+replace missing: abc
+replace with empty: abc
+replace longer: a, b
+replace is not in place: the quick
+replace chained: a b c
+replace non-overlapping: bb ba
+replace is case-sensitive: Hello bye
+censor: **** it, ****!
+partition: ('key', '=', 'value')
+partition first only: ('a', '=', 'b=c')
+partition missing: ('novalue', '', '')
+partition multi-char sep: ('left', ' -> ', 'right')
+partition unpack: user @ example.com
+partition at ends: ('', '=', 'x') ('x', '=', '')
+find all: [12, 17, 26, 41] [0, 1, 2] []
+split by index: ada.lovelace example.org
+extension: gz | stem: archive
+between brackets: x, y
+word order: True True
+words starting with t: 2
+find vs index agree: True
+vowel counts: {'a': 1, 'e': 3, 'i': 1, 'o': 4, 'u': 2}
+first vowel index: 2
+endswith tuple: True False

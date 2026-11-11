@@ -1,0 +1,31 @@
+type(): <class 'int'> <class 'float'> <class 'str'> <class 'bool'> <class 'NoneType'>
+type() containers: <class 'list'> <class 'tuple'> <class 'dict'> <class 'set'> <class 'range'>
+type names: ['int', 'float', 'str', 'bool', 'NoneType', 'list', 'tuple', 'dict', 'set', 'frozenset', 'range']
+type compare: True True True False False
+isinstance: True False True True False
+isinstance bool/int: True True False
+isinstance tuple: True False True True
+issubclass: True False True True
+callable: True True True False False True
+instance type: Point True True True False
+getattr: 3 point default 7
+hasattr: True False True True True False
+setattr: 10 moved True
+dynamic access: x 10
+dynamic access: y -4
+dynamic access: missing None
+getattr without default raises AttributeError
+getattr on builtins: ABC 2
+setattr on class: pt pt
+int(): 42 3 -3 1 7 0 5
+float(): 3.5 2.0 0.001 inf 0.0
+str(): 42 3.0 True None [1, 'a'] (1,) {'k': 1}
+repr(): 'a' 1 [1, 'a'] None 2.5
+bool(): False True False True False True False False
+list(): ['a', 'b', 'c'] [1, 2] ['a', 'b'] [0, 1, 2] []
+tuple(): (1, 2) ('a', 'b') ()
+dict(): {'a': 1} {'a': 1, 'b': 2} {'x': 1, 'y': 2} {'k': 1}
+set()/frozenset(): ['e', 'h', 'l', 'o'] [1, 3] [1, 2] set()
+round trips: 124 42 5.0 [1, 2]
+chars and codes: 97 b 0b101 0xff 0o10 31
+user class type: <class '__main__.Point'>

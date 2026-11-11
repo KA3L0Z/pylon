@@ -1,0 +1,1082 @@
+/* Pylon game logic: progress, the tower hub UI, the level panel, running code, the step-by-step tracer,
+   the scratchpad, the AI mentor, music and sound, streaks and badges, saving. */
+(function () {
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const clip = (s, n) => s.length > n ? s.slice(0, n) + '\n… (cut)' : s;
+const num = n => Number(n).toLocaleString('en-US');
+const Runner = window.PylonRunner, RealWorld = window.PylonWorld || { ok: false };
+// Every call to the 3D world goes through this, so the game still works where WebGL does not.
+const World = new Proxy({}, { get: (_, k) => (RealWorld.ok && typeof RealWorld[k] === 'function') ? RealWorld[k] : (/^play/.test(k) ? () => Promise.resolve(true) : () => undefined) });
+
+const ZONES = [
+  { n: 1, name: 'Boot Deck', color: '#3ad6c5', title: 'Trainee', blurb: 'Wake PIP up. Calls, loops, decisions and your own functions.' },
+  { n: 2, name: 'Logic Gardens', color: '#ffb347', title: 'Intern', blurb: 'Values, text and decisions. Your first real functions.' },
+  { n: 3, name: 'Data Vaults', color: '#a58bff', title: 'Junior Engineer', blurb: 'Lists, dictionaries, sets and the idioms that keep Python short.' },
+  { n: 4, name: 'Pattern Forge', color: '#ff7a6b', title: 'Engineer', blurb: 'The patterns behind most interview questions.' },
+  { n: 5, name: 'Structure Works', color: '#5fb0ff', title: 'Senior Engineer', blurb: 'Classes, linked lists, trees, graphs, heaps and dynamic programming.' },
+  { n: 6, name: 'Summit Core', color: '#ffe08a', title: 'Staff Engineer', blurb: 'Generators, decorators and the hard classics.' },
+];
+const LAB = { n: 0, name: 'Scratchpad', color: '#4fe3d0' };
+const RANKS = ['Amateur'].concat(ZONES.map(z => z.title));
+const LEVELS = (window.PYLON_LEVELS || []).slice().sort((a, b) => a.zone - b.zone || a.order - b.order);
+const INDEX = {};
+LEVELS.forEach((l, i) => { INDEX[l.id] = i; });
+const zoneOf = lv => lv.zone ? ZONES[lv.zone - 1] : LAB;
+const zoneLevels = n => LEVELS.filter(l => l.zone === n);
+const CLASSICS = LEVELS.filter(l => l.classic).length;
+// The scratchpad is a level with no tests: write anything, run it, step through it.
+const SANDBOX = { id: 'sandbox', zone: 0, order: 0, kind: 'sandbox', title: 'Scratchpad', concept: 'nothing here is graded', difficulty: 'Easy', boss: false,
+  lesson: '<p>This is your lab bench. Write any Python, run it, and see what it prints. Nothing here is graded and nothing can break.</p>' +
+    '<p>Good uses for it:</p><ul><li>Try a line from a lesson with your own values.</li><li>Check what a method really returns before you rely on it.</li>' +
+    '<li>Paste a function from a level and call it with inputs of your own.</li></ul>' +
+    '<p><b>Step through</b> runs your code one line at a time and shows every variable as it changes. When a result surprises you, that is the fastest way to find out why.</p>' +
+    '<p>The helpers from the tower work here too: <code>linked([1, 2, 3])</code> builds a linked list and <code>tree([1, 2, 3])</code> builds a binary tree.</p>',
+  task: '<p>Write any Python and press <b>Run</b>. Use <code>print(...)</code> to see values.</p>',
+  starter: '# Try anything here. Nothing is graded.\nnames = ["Ada", "Grace", "Linus"]\nfor i, name in enumerate(names, start=1):\n    print(i, name.upper())\n\nsquares = [n * n for n in range(6)]\nprint(squares, sum(squares))\n',
+  tests: [], hints: [], solution: '', explain: '' };
+
+// ---------------------------------------------------------------- state and saving
+const SAVE_KEY = 'pylon.save.v1';
+let S = { v: 1, levels: {}, sound: true, music: true, musicVol: 0.45, sfxVol: 0.8, unlockAll: false, intro: false, last: null, open: null, speed: 1,
+  board: false, days: [], badges: {}, counters: {}, t: 0 };
+function loadLocal() {
+  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { const d = JSON.parse(raw); if (d && d.v === 1) S = Object.assign(S, d); } }
+  catch (e) { /* storage blocked: play without saving */ }
+  if (!Array.isArray(S.days)) S.days = [];
+  if (!S.badges || typeof S.badges !== 'object') S.badges = {};
+  if (!S.counters || typeof S.counters !== 'object') S.counters = {};
+}
+function save() {
+  S.t = Date.now();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+  Cloud.push();
+}
+function st(id) { return S.levels[id] || (S.levels[id] = { solved: false, stars: 0, xp: 0, code: null, hints: 0, saw: false, tries: 0, read: false, t: 0 }); }
+const bump = (name, by) => { S.counters[name] = (S.counters[name] || 0) + (by || 1); };
+const isSolved = i => !!(LEVELS[i] && S.levels[LEVELS[i].id] && S.levels[LEVELS[i].id].solved);
+const isUnlocked = i => i === 0 || S.unlockAll || isSolved(i - 1);
+function totals() {
+  let xp = 0, stars = 0, solved = 0;
+  for (const l of LEVELS) { const s = S.levels[l.id]; if (s && s.solved) { xp += s.xp; stars += s.stars; solved++; } }
+  return { xp, stars, solved };
+}
+function rankIndex() {
+  let r = 0;
+  for (const z of ZONES) { const ls = zoneLevels(z.n); if (ls.length && ls.every(l => isSolved(INDEX[l.id]))) r++; else break; }
+  return r;
+}
+function nextIndex() { for (let i = 0; i < LEVELS.length; i++) if (!isSolved(i)) return i; return -1; }
+function xpFor(lv, stars) {
+  const base = lv.kind === 'robot' ? 60 : lv.difficulty === 'Hard' ? 300 : lv.difficulty === 'Medium' ? 180 : 100;
+  return Math.round(base * (lv.boss ? 1.5 : 1) * [0, 0.4, 0.75, 1][stars]);
+}
+const dayKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+function streak() {
+  const have = new Set(S.days), d = new Date();
+  if (!have.has(dayKey(d))) d.setDate(d.getDate() - 1);          // today not played yet: the streak still stands
+  let n = 0;
+  while (have.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+function mergeRemote(remote) {
+  if (!remote || remote.v !== 1) return;
+  for (const id in remote.levels || {}) {
+    const r = remote.levels[id], l = st(id);
+    if ((r.t || 0) > (l.t || 0) && r.code != null) l.code = r.code;
+    l.solved = l.solved || !!r.solved; l.stars = Math.max(l.stars, r.stars || 0); l.xp = Math.max(l.xp, r.xp || 0);
+    l.hints = Math.max(l.hints, r.hints || 0); l.saw = l.saw || !!r.saw; l.read = l.read || !!r.read; l.mentor = l.mentor || !!r.mentor;
+    l.lean = l.lean || !!r.lean; l.tries = Math.max(l.tries, r.tries || 0); l.t = Math.max(l.t || 0, r.t || 0);
+  }
+  if ((remote.t || 0) > (S.t || 0)) {
+    S.sound = remote.sound !== false; S.music = remote.music !== false; S.unlockAll = !!remote.unlockAll; S.speed = remote.speed || 1; S.board = !!remote.board;
+    if (typeof remote.musicVol === 'number') S.musicVol = remote.musicVol;
+    if (typeof remote.sfxVol === 'number') S.sfxVol = remote.sfxVol;
+    if (remote.last) S.last = remote.last;
+  }
+  S.intro = S.intro || !!remote.intro;
+  S.days = Array.from(new Set(S.days.concat(Array.isArray(remote.days) ? remote.days : []))).sort().slice(-400);
+  for (const k in remote.badges || {}) if (!S.badges[k]) S.badges[k] = remote.badges[k];
+  for (const k in remote.counters || {}) S.counters[k] = Math.max(S.counters[k] || 0, remote.counters[k] || 0);
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+}
+
+// Cloud save and the opt-in leaderboard. Only active when the page runs inside claude.ai for a signed-in viewer.
+const Cloud = (() => {
+  let db = null, user = null, uid = null, saveRef = null, ready = false, dead = false, dirty = false, writing = false, timer = 0, lastScore = '';
+  async function init() {
+    if (!window.claude || typeof window.claude.use !== 'function') return false;
+    try {
+      const got = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+      db = got[0]; user = got[1];
+      if (!db || !user) return false;
+      uid = await user.id();
+      if (!uid) return false;
+      saveRef = db.doc('data/users/' + uid + '/save');
+      const snap = await saveRef.get();
+      const had = snap.exists && snap.data() && snap.data().state;
+      if (had) mergeRemote(snap.data().state);
+      ready = true;
+      if (dirty || !had) push();
+      return !!had;
+    } catch (e) { dead = true; return false; }
+  }
+  function push() { dirty = true; if (!ready || dead) return; clearTimeout(timer); timer = setTimeout(flush, 2500); }
+  async function flush() {
+    if (writing || !dirty || dead) return;
+    writing = true; dirty = false;
+    try {
+      await saveRef.set({ state: JSON.parse(JSON.stringify(S)), t: Date.now() });
+      if (S.board) {
+        const t = totals(), key = t.xp + ':' + t.stars + ':' + t.solved;
+        if (key !== lastScore) { await db.doc('scores/' + uid).set({ xp: t.xp, stars: t.stars, solved: t.solved, rank: rankIndex(), t: Date.now() }); lastScore = key; }
+      }
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'unavailable' || code === 'resource_exhausted') dirty = true; else dead = true;
+    }
+    writing = false;
+    if (dirty && !dead) push();
+  }
+  async function board() {
+    if (!ready || dead) return null;
+    const snap = await db.collection('scores').orderBy('xp', 'desc').limit(25).get();
+    const rows = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    let names = {};
+    try { names = await user.profiles(rows.map(r => r.id)); } catch (e) { names = {}; }
+    return rows.map(r => Object.assign(r, { name: (names[r.id] && names[r.id].name) || '', me: r.id === uid }));
+  }
+  async function leave() { lastScore = ''; try { await db.doc('scores/' + uid).delete(); } catch (e) { /* ignore */ } }
+  return { init, push, board, leave, flushNow: () => { clearTimeout(timer); return flush(); }, get ready() { return ready && !dead; } };
+})();
+
+// ---------------------------------------------------------------- sound effects and music
+const Sfx = (() => {
+  let ctx = null, master = null;
+  function ensure() {
+    if (ctx) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    try { ctx = new AC(); master = ctx.createGain(); master.connect(ctx.destination); } catch (e) { return false; }
+    return true;
+  }
+  function tone(freq, start, dur, type, vol, slide) {
+    const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + start;
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol || 0.5, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + dur + 0.03);
+  }
+  // a short burst of filtered noise: whooshes, thuds and sparkles
+  function noise(start, dur, vol, from, to) {
+    const n = Math.max(1, Math.floor(ctx.sampleRate * dur)), buf = ctx.createBuffer(1, n, ctx.sampleRate), data = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), t0 = ctx.currentTime + start;
+    src.buffer = buf; f.type = 'bandpass'; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(from, t0); f.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + dur * 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + dur + 0.02);
+  }
+  const seq = (notes, gap, dur, type, vol) => notes.forEach((f, i) => tone(f, i * gap, dur, type, vol));
+  const bank = {
+    click: () => tone(660, 0, 0.05, 'triangle', 0.3),
+    select: () => { tone(520, 0, 0.06, 'triangle', 0.28); tone(780, 0.05, 0.08, 'sine', 0.22); },
+    open: () => { noise(0, 0.28, 0.2, 300, 2400); tone(330, 0.02, 0.2, 'sine', 0.28, 660); },
+    back: () => { noise(0, 0.22, 0.16, 2000, 300); tone(520, 0, 0.16, 'sine', 0.22, 260); },
+    modal: () => tone(440, 0, 0.09, 'sine', 0.2, 660),
+    step: () => { tone(240, 0, 0.07, 'triangle', 0.32, 300); noise(0, 0.05, 0.05, 900, 500); },
+    turn: () => tone(420, 0, 0.05, 'sine', 0.2, 520),
+    collect: () => { tone(880, 0, 0.09, 'sine', 0.5); tone(1320, 0.07, 0.14, 'sine', 0.45); tone(1760, 0.14, 0.18, 'sine', 0.25); },
+    tick: () => tone(740, 0, 0.07, 'sine', 0.4, 990),
+    trace: () => tone(600, 0, 0.035, 'triangle', 0.18),
+    buzz: () => tone(150, 0, 0.16, 'sawtooth', 0.3, 110),
+    slow: () => tone(260, 0, 0.3, 'triangle', 0.3, 180),
+    crash: () => { tone(180, 0, 0.22, 'sawtooth', 0.45, 60); tone(90, 0.02, 0.25, 'square', 0.25, 50); noise(0, 0.25, 0.35, 1800, 200); },
+    fail: () => { tone(300, 0, 0.14, 'triangle', 0.4, 220); tone(220, 0.13, 0.22, 'triangle', 0.4, 160); },
+    hint: () => { tone(587, 0, 0.1, 'sine', 0.3); tone(880, 0.09, 0.16, 'sine', 0.22); },
+    mentor: () => seq([523, 659, 880], 0.08, 0.16, 'sine', 0.22),
+    pass: () => seq([523, 659, 784, 1047], 0.07, 0.22, 'triangle', 0.45),
+    star: () => { tone(1175, 0, 0.12, 'sine', 0.4); tone(1568, 0.05, 0.2, 'sine', 0.25); noise(0, 0.12, 0.06, 5000, 9000); },
+    badge: () => { seq([784, 988, 1175, 1568], 0.06, 0.2, 'sine', 0.3); noise(0.1, 0.3, 0.06, 6000, 10000); },
+    boss: () => { seq([392, 523, 659, 784, 1047, 1319], 0.09, 0.3, 'square', 0.2); noise(0, 0.5, 0.25, 200, 3000); },
+    rank: () => { seq([523, 659, 784, 1047, 784, 1047, 1319], 0.11, 0.32, 'triangle', 0.45); seq([262, 330, 392], 0.22, 0.5, 'sine', 0.25); },
+  };
+  return {
+    play(name) {
+      if (!S.sound || !bank[name] || !ensure()) return;
+      if (ctx.state === 'suspended') ctx.resume();
+      master.gain.value = 0.2 * Math.max(0, Math.min(1, S.sfxVol));
+      try { bank[name](); } catch (e) { /* ignore */ }
+    },
+  };
+})();
+// Background music: one looping track. Browsers only allow it to start after the first click or key press.
+const Music = (() => {
+  const SRC = 'audio/pythonic-ambiance.mp3';
+  let el = null, started = false, armed = false, failed = false, fade = 0, planB = false, ready = false;
+  const target = () => S.music ? Math.max(0, Math.min(1, S.musicVol)) * (mode === 'level' ? 0.6 : 1) : 0;
+  const play = () => { const p = el.play(); if (p && p.catch) p.catch(() => { started = false; }); };
+  function fadeTo(v, done) {
+    clearInterval(fade);
+    const from = el.volume, t0 = performance.now();
+    fade = setInterval(() => {
+      const k = Math.min(1, (performance.now() - t0) / 900);
+      try { el.volume = Math.max(0, Math.min(1, from + (v - from) * k)); } catch (e) { /* some phones fix the volume */ }
+      if (k >= 1) { clearInterval(fade); if (done) done(); }
+    }, 40);
+  }
+  function giveUp() { failed = true; started = false; clearInterval(fade); toast('The music track could not be loaded.'); }
+  // Plan B, for a viewer that will not let an <audio> element load the file: fetch it and loop it through Web Audio.
+  function viaBuffer() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (planB || !AC || !window.fetch) { giveUp(); return; }
+    planB = true; started = false;
+    clearInterval(fade);
+    let ctx = null;
+    fetch(SRC).then(r => { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
+      .then(data => { ctx = new AC(); return new Promise((res, rej) => ctx.decodeAudioData(data, res, rej)); })
+      .then(buf => {
+        const gain = ctx.createGain(), src = ctx.createBufferSource();
+        gain.gain.value = 0; gain.connect(ctx.destination);
+        src.buffer = buf; src.loop = true; src.connect(gain); src.start();
+        // the same four members the rest of this code uses on an <audio> element
+        el = { get volume() { return gain.gain.value; }, set volume(v) { gain.gain.value = v; }, get paused() { return ctx.state !== 'running'; }, play: () => ctx.resume(), pause: () => { ctx.suspend(); } };
+        ready = started = true;
+        if (S.music && !document.hidden) { play(); fadeTo(target()); } else el.pause();
+      })
+      .catch(giveUp);
+  }
+  // Called from every click and key press: the first one is what lets the browser play sound at all.
+  function start() {
+    armed = true;
+    if (failed || !S.music) return;
+    if (started) { if (el.paused && !document.hidden) play(); return; }
+    if (planB && !ready) return;            // still fetching the file
+    if (!el) {
+      el = new Audio(SRC);
+      el.loop = true; el.preload = 'auto'; el.volume = 0;
+      el.addEventListener('error', viaBuffer);
+    }
+    started = true;
+    play();
+    fadeTo(target());
+  }
+  function apply() {
+    if (failed) return;
+    if (!el || !started) { if (S.music && armed) start(); return; }
+    if (!S.music) { fadeTo(0, () => el.pause()); return; }
+    if (el.paused && !document.hidden) play();
+    fadeTo(target());
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!el || !started || failed || !S.music) return;
+    if (document.hidden) el.pause(); else play();
+  });
+  return { start, apply, get failed() { return failed; } };
+})();
+
+// ---------------------------------------------------------------- small UI pieces
+let modalClose = null;
+function modal(html, opts) {
+  opts = opts || {};
+  $('modal-body').innerHTML = html;
+  $('modal').hidden = false;
+  $('modal').className = opts.wide ? 'wide' : '';
+  modalClose = opts.onClose || null;
+  const f = $('modal-body').querySelector('[data-focus]') || $('modal-body').querySelector('button');
+  if (f) f.focus();
+}
+function closeModal() { if ($('modal').hidden) return; $('modal').hidden = true; $('modal-body').innerHTML = ''; const f = modalClose; modalClose = null; if (f) f(); }
+function toast(text, kind) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.textContent = text;
+  $('toasts').appendChild(t);
+  setTimeout(() => { t.classList.add('gone'); setTimeout(() => t.remove(), 400); }, kind === 'badge' ? 4200 : 2600);
+}
+const starsHtml = n => '<span class="stars" aria-label="' + n + ' of 3 stars">' + [0, 1, 2].map(i => '<i class="' + (i < n ? 'on' : '') + '">★</i>').join('') + '</span>';
+function chips(lv) {
+  let h = '<span class="chip">' + (lv.kind === 'robot' ? 'Drone puzzle' : lv.kind === 'sandbox' ? 'Free play' : esc(lv.difficulty)) + '</span>';
+  if (lv.classic) h += '<span class="chip classic">' + esc(lv.classic) + '</span>';
+  if (lv.boss) h += '<span class="chip boss">Floor boss</span>';
+  return h;
+}
+const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.replace(/\s+\n/g, '\n').trim(); };
+
+// ---------------------------------------------------------------- badges
+const BADGES = [
+  { id: 'first', name: 'First Contact', desc: 'Solve your first level.', test: c => c.solved >= 1 },
+  { id: 'boot', name: 'Boot Sequence', desc: 'Bring Floor 1 back online.', test: c => c.rank >= 1 },
+  { id: 'xray', name: 'X-Ray Vision', desc: 'Step through a run line by line.', test: c => c.n('traces') >= 1 },
+  { id: 'lab', name: 'Lab Rat', desc: 'Run five experiments in the Scratchpad.', test: c => c.n('lab') >= 5 },
+  { id: 'persist', name: 'Bug Squasher', desc: 'Solve a level after five or more failed runs.', test: c => c.n('persist') >= 1 },
+  { id: 'speed', name: 'Speed of Light', desc: 'Pass a speed test.', test: c => c.n('speed') >= 1 },
+  { id: 'clean', name: 'Clean Hands', desc: 'Earn three stars on 10 levels.', test: c => c.three >= 10 },
+  { id: 'lean', name: 'Lean Machine', desc: 'Match the model solution for efficiency on five levels.', test: c => c.lean >= 5 },
+  { id: 'streak3', name: 'On a Roll', desc: 'Solve levels three days in a row.', test: c => c.streak >= 3 },
+  { id: 'streak7', name: 'Unstoppable', desc: 'Solve levels seven days in a row.', test: c => c.streak >= 7 },
+  { id: 'boss', name: 'Boss Breaker', desc: 'Clear three floor bosses.', test: c => c.bosses >= 3 },
+  { id: 'classic10', name: 'Classic Collector', desc: 'Solve 10 classic interview problems.', test: c => c.classics >= 10 },
+  { id: 'classicAll', name: 'The Whole Shelf', desc: 'Solve every classic interview problem in the tower.', test: c => CLASSICS > 0 && c.classics >= CLASSICS },
+  { id: 'senior', name: 'Senior Engineer', desc: 'Bring Floor 5 back online.', test: c => c.rank >= 5 },
+  { id: 'summit', name: 'Top of the Pylon', desc: 'Solve every level in the tower.', test: c => c.solved >= LEVELS.length },
+];
+function checkBadges(silent) {
+  const done = LEVELS.filter((l, i) => isSolved(i));
+  const c = { solved: done.length, rank: rankIndex(), streak: streak(), three: done.filter(l => S.levels[l.id].stars === 3).length, lean: done.filter(l => S.levels[l.id].lean).length,
+    bosses: done.filter(l => l.boss).length, classics: done.filter(l => l.classic).length, n: k => S.counters[k] || 0 };
+  let fresh = 0;
+  for (const b of BADGES) {
+    if (S.badges[b.id] || !b.test(c)) continue;
+    S.badges[b.id] = Date.now();
+    fresh++;
+    if (!silent) setTimeout(() => { toast('Badge earned: ' + b.name, 'badge'); Sfx.play('badge'); }, 900 + fresh * 700);
+  }
+  if (fresh) { save(); renderHud(); }
+}
+
+// ---------------------------------------------------------------- hub
+let mode = 'hub', hubSel = 0, cur = null, editor = null, busy = false, animating = false, lastRes = null;
+const progressList = () => LEVELS.map((l, i) => ({ state: isSolved(i) ? 'solved' : isUnlocked(i) ? 'open' : 'locked', stars: (S.levels[l.id] && S.levels[l.id].stars) || 0 }));
+function refreshProgress() {
+  World.setProgress(progressList(), nextIndex());
+  renderHud(); renderFloors(); renderCard();
+}
+function renderHud() {
+  const t = totals(), sk = streak(), earned = Object.keys(S.badges).length;
+  $('rank').textContent = RANKS[rankIndex()];
+  $('stat-stars').textContent = t.stars + ' / ' + LEVELS.length * 3;
+  $('stat-xp').textContent = num(t.xp) + ' XP';
+  $('stat-streak').hidden = sk < 1;
+  $('stat-streak').textContent = sk + '-day streak';
+  $('btn-badges').textContent = 'Badges ' + earned + '/' + BADGES.length;
+  $('btn-music').textContent = S.music ? 'Music on' : 'Music off';
+  $('btn-music').setAttribute('aria-pressed', S.music ? 'true' : 'false');
+}
+function renderFloors() {
+  const curZone = LEVELS[hubSel] ? LEVELS[hubSel].zone : 1;
+  $('floors').innerHTML = ZONES.slice().reverse().map(z => {
+    const ls = zoneLevels(z.n);
+    if (!ls.length) return '';
+    const open = isUnlocked(INDEX[ls[0].id]);
+    return '<button type="button" class="floor' + (z.n === curZone ? ' on' : '') + (open ? '' : ' locked') + '" data-zone="' + z.n + '" style="--zc:' + z.color + '">' +
+      '<span class="f-n">' + z.n + '</span><span class="f-name">' + esc(z.name) + '</span><span class="f-dots" aria-hidden="true">' +
+      ls.map(l => '<i class="' + (isSolved(INDEX[l.id]) ? 'd' : '') + '"></i>').join('') + '</span></button>';
+  }).join('');
+}
+function renderCard() {
+  const lv = LEVELS[hubSel];
+  if (!lv) { $('card').innerHTML = ''; return; }
+  const z = zoneOf(lv), s = S.levels[lv.id], solved = isSolved(hubSel), open = isUnlocked(hubSel);
+  let action;
+  if (!open) action = '<p class="locked">Locked. Finish “' + esc(LEVELS[hubSel - 1].title) + '” first.</p>';
+  else action = '<button type="button" class="btn primary" id="card-enter">' + (solved ? 'Play again' : s && s.tries ? 'Continue' : 'Enter level') + '</button>';
+  $('card').innerHTML =
+    '<button type="button" class="nav" id="card-prev" aria-label="Previous level"' + (hubSel === 0 ? ' disabled' : '') + '>‹</button>' +
+    '<div class="card-main"><div class="eyebrow" style="color:' + z.color + '">Floor ' + z.n + ' · ' + esc(z.name) + ' · Level ' + lv.order + ' of ' + zoneLevels(z.n).length + '</div>' +
+    '<h2>' + esc(lv.title) + '</h2><p class="concept">' + esc(lv.concept) + '</p><div class="chips">' + chips(lv) + (solved ? starsHtml(s.stars) + '<span class="chip xp">' + s.xp + ' XP</span>' : '') + '</div>' + action + '</div>' +
+    '<button type="button" class="nav" id="card-next" aria-label="Next level"' + (hubSel >= LEVELS.length - 1 ? ' disabled' : '') + '>›</button>';
+}
+function selectLevel(i, instant) {
+  if (i < 0 || i >= LEVELS.length) return;
+  hubSel = i;
+  S.last = LEVELS[i].id;
+  World.select(i, !!instant);
+  renderFloors(); renderCard();
+}
+
+// ---------------------------------------------------------------- level view
+function setMode(m) {
+  mode = m;
+  $('app').className = 'mode-' + m;
+  $('panel').hidden = m !== 'level';
+  $('hud').hidden = $('floors').hidden = $('card').hidden = m !== 'hub';
+  World.resize();
+  requestAnimationFrame(() => World.resize());
+  Music.apply();
+}
+// Colour the Python inside lesson and task text, remembering the plain source for the "run" buttons.
+function hl(el) { el.querySelectorAll('pre code').forEach(c => { c.parentNode.dataset.src = c.textContent; c.innerHTML = window.PylonHighlight(c.textContent); }); }
+// Lesson examples that print something get a button that really runs them.
+function addExampleButtons(root) {
+  root.querySelectorAll('pre').forEach(pre => {
+    const code = pre.dataset.src;
+    if (!code || code.indexOf('print(') < 0) return;
+    let probe;
+    try { probe = Runner.runFree(code, 300000); } catch (e) { return; }
+    if (!probe.ok || !probe.output.trim()) return;
+    const b = document.createElement('button'), outEl = document.createElement('pre');
+    b.type = 'button'; b.className = 'btn ex-run'; b.textContent = 'Run this example';
+    outEl.className = 'ex-out'; outEl.hidden = true;
+    b.addEventListener('click', () => { outEl.hidden = false; outEl.textContent = probe.output.replace(/\n$/, ''); b.textContent = 'Output'; b.disabled = true; Sfx.play('tick'); });
+    pre.after(b, outEl);
+  });
+}
+let shownMap = 0;
+function buildArena() {
+  const z = zoneOf(cur);
+  shownMap = 0;
+  if (cur.kind === 'robot') World.showRobot(Runner.parseMap(cur.maps[0]), z.color);
+  else World.showTests(cur.tests.length, cur.tests.map(t => !!t.perf), z.color, !!cur.boss);
+}
+function openLevel(i) {
+  if (!LEVELS[i]) return;
+  if (!isUnlocked(i)) { selectLevel(i); toast('That level is still locked.'); return; }
+  hubSel = i;
+  enter(LEVELS[i]);
+}
+function enter(lv) {
+  closeModal();
+  closeTrace();
+  cur = lv;
+  lastRes = null;
+  const s = st(cur.id), z = zoneOf(cur), lab = cur.kind === 'sandbox';
+  S.open = cur.id;
+  if (!lab) S.last = cur.id;
+  Sfx.play('open');
+  setMode('level');
+  $('p-eyebrow').textContent = lab ? 'Scratchpad · ' + cur.concept : 'Floor ' + z.n + ' · Level ' + cur.order + ' · ' + cur.concept;
+  $('p-eyebrow').style.color = z.color;
+  $('p-name').textContent = cur.title;
+  $('tab-btn-lesson').textContent = lab ? 'About' : 'Lesson';
+  $('tab-btn-solution').hidden = lab;
+  $('tab-lesson').innerHTML = '<div class="chips">' + chips(cur) + '</div>' + cur.lesson + (lab ? '' : '<div class="taskcard"><h3>Your task</h3>' + cur.task + '</div>') + '<button type="button" class="btn primary" id="go-code">Open the editor</button>';
+  $('task-body').innerHTML = cur.task;
+  hl($('tab-lesson')); hl($('task-body'));
+  if (cur.kind === 'code') addExampleButtons($('tab-lesson'));
+  $('taskbox').open = true;
+  $('taskbox').hidden = lab;
+  const cmds = $('cmds');
+  cmds.hidden = cur.kind !== 'robot';
+  cmds.innerHTML = cur.kind === 'robot' ? '<span class="cmds-label">PIP understands</span>' + cur.commands.map(c => '<button type="button" class="cmd" data-cmd="' + esc(c) + '">' + esc(c) + '</button>').join('') : '';
+  $('robot-ctl').hidden = cur.kind !== 'robot';
+  $('btn-trace').hidden = cur.kind === 'robot';
+  $('btn-hint').hidden = lab;
+  $('btn-mentor').hidden = !Mentor.ready;
+  editor.set(s.code != null ? s.code : cur.starter);
+  $('results').innerHTML = '';
+  $('mentor').hidden = true;
+  $('stage-note').hidden = true;
+  setStatus('');
+  renderHints(); renderSolution(); renderPanelStars(); updateLineCount();
+  showTab(lab || s.read || s.solved || s.tries ? 'code' : 'lesson');
+  buildArena();
+  save();
+}
+function closeLevel(celebrate) {
+  World.stop();
+  Mentor.stop();
+  closeTrace();
+  if (cur && editor) { const s = st(cur.id); s.code = editor.value; }
+  busy = animating = false;
+  S.open = null;
+  cur = null;
+  $('robot-ctl').hidden = true;
+  $('stage-note').hidden = true;
+  Sfx.play('back');
+  setMode('hub');
+  World.showHub(celebrate);
+  World.select(hubSel, true);
+  refreshProgress();
+  save();
+}
+function showTab(name) {
+  for (const t of ['lesson', 'code', 'solution']) {
+    $('tab-' + t).hidden = t !== name;
+    $('tab-btn-' + t).setAttribute('aria-selected', t === name ? 'true' : 'false');
+  }
+  if (name === 'code' && cur) { const s = st(cur.id); if (!s.read) { s.read = true; save(); } }
+  if (name === 'solution' && cur && cur.kind !== 'sandbox') {
+    const s = st(cur.id);
+    if (s.solved && s.stars < 3 && !s.saw) { s.saw = true; save(); renderHints(); }     // reading it ends a clean attempt
+    renderSolution();
+  }
+}
+function renderPanelStars() { const s = cur && S.levels[cur.id]; $('p-stars').innerHTML = s && s.solved ? starsHtml(s.stars) : ''; }
+function setStatus(text, kind) { const e = $('run-status'); e.textContent = text; e.className = 'status' + (kind ? ' ' + kind : ''); }
+function updateLineCount() {
+  if (!cur || !cur.maxLines) { $('linecount').hidden = true; return; }
+  const n = Runner.countLines(editor.value);
+  $('linecount').hidden = false;
+  $('linecount').textContent = n + ' / ' + cur.maxLines + ' lines';
+  $('linecount').className = 'linecount' + (n > cur.maxLines ? ' over' : '');
+}
+let codeTimer = 0;
+function onCodeChange() {
+  if (!cur) return;
+  updateLineCount();
+  if (trace) closeTrace();
+  clearTimeout(codeTimer);
+  codeTimer = setTimeout(() => { if (cur) { const s = st(cur.id); s.code = editor.value; s.t = Date.now(); save(); } }, 700);
+}
+function renderHints() {
+  const s = st(cur.id), total = cur.hints.length, left = total - s.hints;
+  $('btn-hint').textContent = left > 0 ? 'Hint (' + left + ' left)' : 'No hints left';
+  $('btn-hint').disabled = left <= 0;
+  let h = '';
+  // Solved with help: a clean attempt is the way to the third star.
+  if (s.solved && s.stars < 3 && (s.hints > 0 || s.saw || s.mentor)) h += '<div class="hint retry">You solved this one with help. <button type="button" class="linkbtn" id="retry-clean">Start a clean attempt for 3 stars</button></div>';
+  for (let i = 0; i < s.hints && i < total; i++) h += '<div class="hint"><span class="hint-n">Hint ' + (i + 1) + '</span>' + cur.hints[i] + '</div>';
+  $('hints').innerHTML = h;
+}
+// Back to the starting code with every kind of help switched off again.
+function cleanAttempt() {
+  if (!cur || cur.kind === 'sandbox') return;
+  const s = st(cur.id);
+  s.hints = 0; s.saw = false; s.mentor = false; s.fails = 0;
+  closeTrace();
+  editor.set(cur.starter);
+  onCodeChange();
+  $('results').innerHTML = ''; $('mentor').hidden = true;
+  setStatus(''); lastRes = null;
+  renderHints(); showTab('code'); buildArena(); save();
+  toast('Clean attempt started. No hints, no mentor, no Solution tab.');
+}
+function renderSolution() {
+  if (!cur || cur.kind === 'sandbox') return;
+  const s = st(cur.id);
+  if (s.solved || s.saw) {
+    $('tab-solution').innerHTML = '<h3>Model solution</h3><pre class="code">' + window.PylonHighlight(cur.solution.replace(/\n+$/, '')) + '</pre>' + cur.explain +
+      '<button type="button" class="btn" id="sol-load">Load it into the editor</button>';
+  } else {
+    $('tab-solution').innerHTML = '<h3>Solution locked</h3><p>Solve the level and the model solution opens here, with an explanation of why it works.</p>' +
+      '<p>If you are stuck for good, you can reveal it now. The level will then award 1 star instead of 3.</p><button type="button" class="btn" id="sol-reveal">Reveal the solution</button>';
+  }
+  hl($('tab-solution'));
+}
+
+// ---------------------------------------------------------------- running code
+const HELP = {
+  SyntaxError: 'Python could not read this line. Look for a missing colon, bracket or quote on it, or on the line just above.',
+  IndentationError: 'The spaces at the start of this line are not what Python expects. Lines inside a block need four more spaces than the line that opens the block.',
+  TabError: 'This file mixes tabs and spaces. Use four spaces for every level of indentation.',
+  NameError: 'Python does not know this name. Check the spelling, and make sure it is defined before this line runs.',
+  UnboundLocalError: 'This variable is assigned somewhere inside the function, so Python treats it as local, but this line reads it before it has a value.',
+  TypeError: 'A value has the wrong type for what this line does with it.',
+  IndexError: 'The code asked for a position that does not exist. Positions start at 0 and the last one is len(...) - 1.',
+  KeyError: 'That key is not in the dictionary. Test with "in" first, or use .get() with a default.',
+  ValueError: 'The type is right, but this particular value is not acceptable here.',
+  AttributeError: 'This object has no method or field with that name. Check the spelling and what kind of object it really is.',
+  ZeroDivisionError: 'The code divided by zero. Check the divisor before dividing.',
+  RecursionError: 'The function kept calling itself. Make sure every path reaches a base case that returns without another call.',
+  StepLimit: 'The code ran for too long. A loop probably never ends: check that its condition can become False.',
+  StopIteration: 'next() was called on an iterator that has no items left.',
+  ModuleNotFoundError: 'That module is not part of Pylon.',
+  AssertionError: 'An assert statement found its condition to be False.',
+  InternalError: 'This is a bug in Pylon itself, not in your code. Try writing the line a different way.',
+};
+function errorCard(error, line, lead) {
+  const where = line ? ' <span class="err-line">line ' + line + '</span>' : '';
+  const help = error.hint || HELP[error.type] || '';
+  return '<div class="errcard">' + (lead ? '<p class="err-lead">' + esc(lead) + '</p>' : '') + '<div class="err-title">' + esc(error.type === 'StepLimit' ? 'Ran too long' : error.type) + where + '</div>' +
+    (error.type === 'StepLimit' ? '' : '<div class="err-msg">' + esc(error.message) + '</div>') + (help ? '<div class="err-help">' + esc(help) + '</div>' : '') + '</div>';
+}
+function testRow(t, brief, helped) {
+  if (t.stdout) {
+    if (t.ok) return '<li class="ok"><span class="t-mark">✓</span><div>The printed text matches exactly.</div></li>';
+    return '<li class="bad"><span class="t-mark">✗</span><div>The printed text does not match.<div class="t-detail"><span>Expected</span><pre>' + esc(t.expect) + '</pre><span>Your program printed</span><pre>' + (t.got ? esc(clip(t.got, 1200)) : '(nothing)') + '</pre></div></div></li>';
+  }
+  let meta = '', detail = '';
+  if (t.perf && t.ok) meta = '<span class="t-meta">speed test · ' + num(t.steps) + ' of ' + num(t.budget) + ' steps</span>';
+  else if (t.perf) meta = '<span class="t-meta">speed test</span>';
+  if (!t.ok && !brief) {
+    const firstOfKind = t.error && helped && !helped[t.error.type];
+    if (t.error && helped) helped[t.error.type] = true;
+    if (t.slow && t.perf) detail = 'Too slow. It was stopped after ' + num(t.budget) + ' steps. A fast solution needs about ' + num(t.refSteps) + '.';
+    else if (t.slow) detail = 'It ran for too long and was stopped. A loop probably never ends.';
+    else if (t.error && t.error.type === 'NameError' && !t.errorLine) detail = esc(t.error.message) + '. Your code has to define it with exactly that name.';
+    else if (t.error) detail = '<b>' + esc(t.error.type) + (t.errorLine ? ' on line ' + t.errorLine : '') + ':</b> ' + esc(t.error.message) + (!firstOfKind ? '' : t.error.hint ? ' <i>' + esc(t.error.hint) + '</i>' : HELP[t.error.type] ? ' <i>' + esc(HELP[t.error.type]) + '</i>' : '');
+    else detail = 'Expected <code>' + esc(t.expect) + '</code><br>Your code returned <code>' + esc(t.got) + '</code>';
+  }
+  const stepBtn = !t.ok && !t.perf ? ' <button type="button" class="linkbtn" data-trace="' + t.index + '">Step through this test</button>' : '';
+  return '<li class="' + (t.ok ? 'ok' : t.slow ? 'slow' : 'bad') + '"><span class="t-mark">' + (t.ok ? '✓' : t.slow ? '◷' : '✗') + '</span><div><code class="t-call">' + esc(t.show) + '</code>' + meta + (detail ? '<div class="t-detail">' + detail + stepBtn + '</div>' : '') + '</div></li>';
+}
+function outputBlock(text, always) {
+  if (!(text && text.trim())) return always ? '<p class="mute">Nothing was printed. Use <code>print(...)</code> to see a value.</p>' : '';
+  return '<details class="out" open><summary>Printed output</summary><pre>' + esc(clip(text, 5000)) + '</pre></details>';
+}
+function renderCodeResults(res) {
+  let h = '', out = res.output || '';
+  if (res.error) h += errorCard(res.error, res.errorLine, 'Your code stopped before the tests could run.');
+  else {
+    const n = res.tests.length, pass = res.tests.filter(t => t.ok).length, e0 = n > 1 && res.tests[0].error, helped = {};
+    // When every test dies the same way, say it once instead of n times.
+    const same = !!e0 && !res.tests[0].slow && res.tests.every(t => t.error && t.error.type === e0.type && t.error.message === e0.message && t.errorLine === res.tests[0].errorLine);
+    h += '<div class="sum ' + (res.ok ? 'ok' : 'bad') + '">' + (res.ok ? (n === 1 ? 'Test passed' : 'All ' + n + ' tests passed') : pass + ' of ' + n + ' tests passed') + '</div>';
+    if (same) h += e0.type === 'NameError' && !res.tests[0].errorLine ? '<div class="errcard"><div class="err-title">Function not found</div><div class="err-msg">' + esc(e0.message) + '</div><div class="err-help">The tests call it by exactly that name, so your code has to define it with the same spelling.</div></div>'
+      : errorCard(e0, res.tests[0].errorLine, 'Every test stopped with the same error.');
+    h += '<ol class="tests">' + res.tests.map(t => testRow(t, same, helped)).join('') + '</ol>';
+    if (res.ok && res.refSteps > 0) h += '<p class="mute work">Work done: ' + num(res.steps) + ' steps. The model solution takes ' + num(res.refSteps) + '.</p>';
+    for (const t of res.tests) out += t.output || '';
+  }
+  $('results').innerHTML = h + (res.tests.some(t => t.stdout) ? '' : outputBlock(out));
+}
+function renderRobotResults(res) {
+  let h = '';
+  const n = cur.maps.length, r = res.runs[res.runs.length - 1];
+  if (res.tooLong) h = '<div class="sum bad">Too many lines</div><p>Your program has ' + res.lines + ' lines of code and this deck allows ' + cur.maxLines + '. Look for steps that repeat and put them in a loop.</p>';
+  else if (res.ok) h = '<div class="sum ok">' + (n > 1 ? 'It works on all ' + n + ' decks' : cur.goal === 'shards' ? 'All shards collected' : 'Beacon reached') + '</div>';
+  else if (r && r.error) h = errorCard(r.error, r.errorLine, n > 1 ? 'Deck ' + (r.map + 1) + ' of ' + n + '.' : '');
+  else if (r) h = '<div class="sum bad">' + (r.crashed ? 'PIP stopped' : 'Not there yet') + '</div><p>' + esc(r.reason) + (r.errorLine ? ' Look at line ' + r.errorLine + '.' : '') + (n > 1 ? ' <span class="mute">Deck ' + (r.map + 1) + ' of ' + n + '.</span>' : '') + '</p>';
+  $('results').innerHTML = h + outputBlock(res.output);
+}
+function renderLabResults(res) {
+  $('results').innerHTML = (res.error ? errorCard(res.error, res.errorLine) : '<div class="sum ok">Ran in ' + num(res.steps) + ' steps</div>') + outputBlock(res.output, !res.error);
+}
+const nextPaint = () => new Promise(r => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 120); });
+async function run() {
+  if (!cur) return;
+  if (busy) { if (animating) World.stop(); return; }
+  busy = true;
+  closeTrace();
+  const lv = cur, code = editor.value, s = st(lv.id);
+  s.code = code; s.tries++; s.t = Date.now();
+  editor.markError(null); editor.markActive(null);
+  showTab('code');
+  $('taskbox').open = false;          // make room for the results; the task is one click away
+  $('btn-run').classList.add('busy');
+  setStatus('Running…');
+  await nextPaint();
+  let res;
+  try { res = Runner.run(lv, code); }
+  catch (e) { res = { kind: lv.kind, ok: false, error: { type: 'InternalError', message: String((e && e.message) || e), trace: [] }, errorLine: null, tests: [], runs: [], output: '' }; }
+  if (cur !== lv) { busy = false; return; }
+  lastRes = res;
+  animating = true;
+  $('btn-run').firstChild.textContent = 'Skip ';
+  if (lv.kind === 'robot') {
+    if (!res.tooLong && res.runs) {
+      for (const r of res.runs) {
+        if (cur !== lv) break;
+        if (lv.maps.length > 1) { $('stage-note').hidden = false; $('stage-note').textContent = 'Deck ' + (r.map + 1) + ' of ' + lv.maps.length; }
+        if (shownMap !== r.map) { World.showRobot(r.world, zoneOf(lv).color); shownMap = r.map; }
+        if (r.error && !r.actions.length) break;
+        const done = await World.playRobot(r, { speed: S.speed, onLine: l => editor.markActive(l && l < Runner.FILE ? l : null) });
+        if (!done) break;
+      }
+    }
+  } else if (lv.kind === 'sandbox') {
+    World.mood(res.ok ? 'happy' : 'sad');
+    Sfx.play(res.ok ? 'tick' : 'fail');
+    bump('lab');
+  } else {
+    const states = res.error ? [] : res.tests.map(t => t.ok ? 'pass' : t.slow ? 'slow' : 'fail');
+    if (states.length) await World.playTests(states, {});
+    else { World.resetTests(); World.mood('sad'); Sfx.play('fail'); }
+  }
+  animating = false;
+  $('btn-run').firstChild.textContent = 'Run ';
+  $('btn-run').classList.remove('busy');
+  if (cur !== lv) { busy = false; return; }
+  editor.markActive(null);
+  if (lv.kind === 'robot') renderRobotResults(res); else if (lv.kind === 'sandbox') renderLabResults(res); else renderCodeResults(res);
+  const errLine = lv.kind === 'robot' ? (res.runs.length && !res.ok ? res.runs[res.runs.length - 1].errorLine : null) : (res.errorLine || ((res.tests.find(t => !t.ok && t.errorLine) || {}).errorLine) || null);
+  if (errLine) editor.markError(errLine);
+  busy = false;
+  if (lv.kind === 'sandbox') { setStatus(res.ok ? 'Done' : 'Error', res.ok ? 'ok' : 'bad'); save(); checkBadges(); return; }
+  setStatus(res.ok ? 'Solved' : 'Not yet', res.ok ? 'ok' : 'bad');
+  if (!res.ok) {
+    s.fails = (s.fails || 0) + 1;
+    // The first time a test fails, point at the tool that explains why.
+    if (lv.kind === 'code' && !res.error && !S.tipTrace && !S.counters.traces) { S.tipTrace = true; setTimeout(() => toast('Tip: “Step through” replays a test one line at a time and shows every variable.'), 600); }
+    save();
+    return;
+  }
+  if (res.tests && res.tests.some(t => t.perf && t.ok)) bump('speed');
+  if ((s.fails || 0) >= 5 && !s.solved) bump('persist');
+  solved(lv, res);
+}
+function solved(lv, res) {
+  const s = st(lv.id), stars = s.saw ? 1 : (s.hints > 0 || s.mentor) ? 2 : 3, xp = xpFor(lv, stars), before = rankIndex(), first = !s.solved;
+  const gain = Math.max(0, xp - (s.solved ? s.xp : 0)), best = Math.max(s.stars, stars);
+  // Efficiency: interpreter steps over all tests, next to the model solution's.
+  let eff = null;
+  if (lv.kind === 'code' && res.refSteps > 0 && res.steps > 0) { eff = res.steps / res.refSteps; if (eff <= 1.3) s.lean = true; }
+  s.solved = true; s.stars = best; s.xp = Math.max(s.xp, xp); s.t = Date.now();
+  const today = dayKey(new Date());
+  if (S.days.indexOf(today) < 0) { S.days.push(today); S.days = S.days.sort().slice(-400); }
+  save();
+  renderPanelStars(); renderSolution(); renderHints();
+  const after = rankIndex(), i = INDEX[lv.id];
+  World.setProgress(progressList(), nextIndex());
+  checkBadges();
+  setTimeout(() => {
+    if (cur !== lv) return;
+    const promoted = after > before, last = i === LEVELS.length - 1, z = zoneOf(lv);
+    const floorDone = zoneLevels(z.n).every(l => isSolved(INDEX[l.id]));
+    Sfx.play(promoted ? 'rank' : 'star');
+    let h = '<div class="done"><div class="eyebrow" style="color:' + z.color + '">' + (floorDone && first ? 'Floor ' + z.n + ' is back online' : lv.boss ? 'Floor boss cleared' : 'Level complete') + '</div><h2>' + esc(lv.title) + '</h2>' +
+      '<div class="done-stars">' + starsHtml(stars) + '</div><p class="done-why">' + (stars === 3 ? 'Solved without help.' : stars === 2 ? 'Solved with a hint. A clean attempt with no help earns the third star.' : 'Solved after seeing the solution. A clean attempt with no help earns all three stars.') +
+      (gain ? ' <b>+' + gain + ' XP</b>' : '') + '</p>';
+    if (eff !== null) {
+      h += '<p class="eff"><span>Efficiency</span> ' + (eff < 0.9 ? 'Your code does less work than the model solution.' : eff <= 1.3 ? 'Your code does about as much work as the model solution.' :
+        'Your code takes about ' + (eff < 10 ? eff.toFixed(1) : Math.round(eff)) + ' times the steps of the model solution.' + (eff > 4 ? ' The Solution tab shows a leaner way.' : '')) + '</p>';
+    }
+    const sk = streak();
+    if (sk >= 2) h += '<p class="eff"><span>Streak</span> ' + sk + ' days in a row.</p>';
+    if (promoted) h += '<div class="promo" style="--zc:' + z.color + '"><span>Promotion</span><strong>' + esc(RANKS[after]) + '</strong>' + (ZONES[after] && zoneLevels(ZONES[after].n).length ? '<em>Floor ' + ZONES[after].n + ', ' + esc(ZONES[after].name) + ', is now open.</em>' : '<em>The whole Pylon is online. There is nothing left to fix here.</em>') + '</div>';
+    h += '<div class="done-actions">' + (last ? '' : '<button type="button" class="btn primary" data-focus id="done-next">Next level</button>') +
+      '<button type="button" class="btn" id="done-solution">Read the model solution</button>' + (best < 3 ? '<button type="button" class="btn" id="done-retry">Clean attempt for 3 stars</button>' : '') +
+      '<button type="button" class="btn ghost" id="done-tower">Back to the tower</button></div></div>';
+    modal(h);
+  }, 700);
+}
+
+// ---------------------------------------------------------------- step-by-step tracer
+let trace = null, traceI = 0, tracePlay = 0, traceTest = 0;
+function closeTrace() {
+  clearInterval(tracePlay); tracePlay = 0;
+  if (!trace) return;
+  trace = null;
+  $('trace').hidden = true; $('trace').innerHTML = '';
+  $('tab-code').classList.remove('tracing');
+  $('btn-trace').setAttribute('aria-pressed', 'false');
+  $('results').hidden = false; $('hints').hidden = false;
+  if (editor) editor.markActive(null);
+}
+function startTrace(testIndex) {
+  if (!cur || cur.kind === 'robot' || busy) return;
+  clearInterval(tracePlay); tracePlay = 0;
+  if (testIndex !== undefined) traceTest = testIndex;
+  else if (lastRes && lastRes.tests) { const f = lastRes.tests.find(t => !t.ok && !t.perf); traceTest = f ? f.index : 0; }
+  else traceTest = 0;
+  editor.markError(null);
+  let t;
+  try { t = Runner.traceRun(cur, editor.value, traceTest); }
+  catch (e) { t = { ok: false, steps: [], truncated: false, label: '', result: null, expect: null, output: '', errorLine: null, error: { type: 'InternalError', message: String((e && e.message) || e) } }; }
+  trace = t; traceI = t.start < t.steps.length ? t.start || 0 : 0;
+  bump('traces');
+  showTab('code');
+  $('taskbox').open = false;
+  $('results').hidden = true; $('hints').hidden = true; $('mentor').hidden = true;
+  const tests = cur.kind === 'code' && cur.tests.length > 1 && cur.tests[0].stdout === undefined ? cur.tests : null;
+  const pick = tests ? '<label class="tr-pick">Test <select id="tr-test">' + tests.map((x, i) => '<option value="' + i + '"' + (i === traceTest ? ' selected' : '') + '>' + (i + 1) + (x.perf ? ' (speed)' : '') + '</option>').join('') + '</select></label>' : '';
+  $('trace').hidden = false;
+  $('trace').innerHTML = '<div class="tr-head"><strong>Step through</strong>' + pick + '<code class="tr-label">' + esc(t.label) + '</code><button type="button" class="btn ghost" id="tr-close">Close</button></div>' +
+    (t.steps.length ? '<div class="tr-ctl"><button type="button" class="btn" id="tr-first" aria-label="First step">⏮</button><button type="button" class="btn" id="tr-prev" aria-label="Previous step">◀</button>' +
+      '<button type="button" class="btn primary" id="tr-play">Play</button><button type="button" class="btn" id="tr-next" aria-label="Next step">▶</button><button type="button" class="btn" id="tr-last" aria-label="Last step">⏭</button>' +
+      '<input type="range" id="tr-slider" min="0" max="' + (t.steps.length - 1) + '" value="0" aria-label="Step"><span id="tr-pos"></span></div>' : '') +
+    '<div id="tr-where"></div><div id="tr-vars"></div><div id="tr-end"></div><pre id="tr-out" hidden></pre>' +
+    (t.truncated ? '<p class="mute">Only the first ' + t.steps.length + ' steps are recorded.</p>' : '');
+  $('tab-code').classList.add('tracing');
+  $('btn-trace').setAttribute('aria-pressed', 'true');
+  // Reserve room for the fullest step, so the panel does not jump while stepping.
+  $('tr-vars').style.minHeight = Math.min(8, t.steps.reduce((m, x) => Math.max(m, x.vars.length), 0)) * 27 + 'px';
+  renderTraceStep();
+  save();
+  checkBadges();
+}
+function renderTraceStep() {
+  if (!trace) return;
+  const steps = trace.steps, n = steps.length;
+  if (!n) {
+    $('tr-where').textContent = 'No line of your code ran.';
+    $('tr-end').innerHTML = trace.error ? errorCard(trace.error, trace.errorLine) : '';
+    return;
+  }
+  traceI = Math.max(0, Math.min(n - 1, traceI));
+  const s = steps[traceI], prev = traceI > 0 ? steps[traceI - 1] : null, atEnd = traceI === n - 1;
+  $('tr-slider').value = traceI;
+  $('tr-pos').textContent = (traceI + 1) + ' / ' + n;
+  $('tr-where').innerHTML = s.end ? '<b>The program finished.</b> These are the final values.'
+    : '<b>Line ' + s.line + '</b> in ' + esc(s.fn) + (s.ret !== null ? ' · returns <code>' + esc(s.ret) + '</code>' : ' · about to run');
+  const old = prev && prev.fn === s.fn && prev.depth === s.depth ? new Map(prev.vars) : null;
+  $('tr-vars').innerHTML = s.vars.length ? '<table><tbody>' + s.vars.map(v => {
+    const changed = old && (!old.has(v[0]) || old.get(v[0]) !== v[1]);
+    return '<tr class="' + (changed ? 'chg' : '') + '"><th>' + esc(v[0]) + '</th><td>' + esc(v[1]) + '</td></tr>';
+  }).join('') + '</tbody></table>' : '<p class="mute">No variables yet.</p>';
+  let end = '';
+  if (atEnd) {
+    if (trace.error) end = errorCard(trace.error, trace.errorLine, trace.truncated ? 'The recording ends here. The run went on and later stopped with this error.' : 'The run stops here.');
+    else if (trace.result !== null) end = '<div class="tr-result">Returned <code>' + esc(trace.result) + '</code>' + (trace.expect ? ' · expected <code>' + esc(trace.expect) + '</code>' : '') + '</div>';
+  }
+  $('tr-end').innerHTML = end;
+  const outText = trace.output.slice(0, atEnd ? trace.output.length : s.out);
+  $('tr-out').hidden = !outText;
+  $('tr-out').textContent = outText;
+  editor.markActive(s.end ? null : s.line);
+  if (atEnd && tracePlay) { clearInterval(tracePlay); tracePlay = 0; $('tr-play').textContent = 'Play'; }
+}
+function traceGo(d) { if (!trace) return; traceI += d; Sfx.play('trace'); renderTraceStep(); }
+
+// ---------------------------------------------------------------- AI mentor (only where the viewer's Claude is available)
+const Mentor = (() => {
+  let ask = null, ctl = null, seq = 0;
+  const COPY = { rate_limited: 'The mentor is busy right now. Try again in a little while.', session_expired: 'Sign in to Claude again to use the mentor.',
+    refused: 'The mentor could not answer that.', empty_completion: 'The mentor had nothing to say this time. Try again after your next run.', upstream_error: 'The mentor could not be reached. Try again in a moment.' };
+  const GONE = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'];
+  async function init() {
+    if (!window.claude || typeof window.claude.use !== 'function') return;
+    try { ask = await window.claude.use('sample'); } catch (e) { ask = null; }
+    if (ask && cur) $('btn-mentor').hidden = false;
+  }
+  function describeRun() {
+    const r = lastRes;
+    if (!r) return 'They have not run this version of the code yet.';
+    if (r.kind === 'robot') {
+      if (r.tooLong) return 'The program is too long: it has ' + r.lines + ' lines of code and the level allows ' + cur.maxLines + '.';
+      if (r.ok) return 'It solved the level.';
+      const run = r.runs[r.runs.length - 1];
+      if (!run) return 'It did not run.';
+      return run.error ? run.error.type + ': ' + run.error.message + (run.errorLine ? ' (line ' + run.errorLine + ')' : '') : run.reason + (run.errorLine ? ' (line ' + run.errorLine + ')' : '');
+    }
+    if (r.error) return r.error.type + ': ' + r.error.message + (r.errorLine ? ' (line ' + r.errorLine + ')' : '');
+    if (r.kind === 'sandbox') return 'It ran without an error and printed:\n' + (r.output || '(nothing)').slice(0, 600);
+    if (r.ok) return 'All tests pass.';
+    const bad = r.tests.filter(t => !t.ok).slice(0, 3).map(t => t.stdout ? 'Printed text differs. Expected:\n' + t.expect + '\nGot:\n' + (t.got || '(nothing)')
+      : 'Test ' + t.show + ': ' + (t.slow ? 'too slow, stopped by the step limit' : t.error ? t.error.type + ': ' + t.error.message + (t.errorLine ? ' (line ' + t.errorLine + ')' : '') : 'expected ' + t.expect + ', got ' + t.got));
+    return r.tests.filter(t => t.ok).length + ' of ' + r.tests.length + ' tests pass. Failing:\n' + bad.join('\n');
+  }
+  function prompt() {
+    const lab = cur.kind === 'sandbox';
+    return 'You are the mentor inside Pylon, a game that teaches Python. A player is working on ' + (lab ? 'free experiments in the scratchpad' : 'a level') + ' and asked for help.\n\n' +
+      'Rules for your reply:\n- Plain text only, at most 110 words. No Markdown, no code blocks.\n' +
+      (lab ? '- Explain what their code does or why it fails, and suggest one thing to try next.\n'
+        : '- Do not write the corrected code and do not give the full solution. You may quote one short line of their code and name the Python feature to look at.\n- Say briefly what their code does right now, then give one concrete nudge toward the fix.\n- If their code already passes, suggest one improvement in clarity or speed instead.\n') +
+      '- Reply in English, unless the comments in their code are in another language: then use that language.\n\n' +
+      (lab ? '' : 'Level: ' + cur.title + ' (teaches: ' + cur.concept + ')\nTask given to the player:\n' + plain(cur.task).slice(0, 1500) + '\n\n' +
+        (cur.kind === 'robot' ? 'This is a drone puzzle. Commands available: ' + cur.commands.join(', ') + '.\n\n' : '')) +
+      'The player\'s code:\n' + editor.value.slice(0, 6000) + '\n\nWhat happened on their last run:\n' + describeRun();
+  }
+  async function go() {
+    if (!ask || !cur) return;
+    stop();
+    const lv = cur, box = $('mentor'), my = ++seq;
+    closeTrace();
+    box.hidden = false;
+    box.innerHTML = '<span class="hint-n">Mentor</span><p id="mentor-text" class="mute">Thinking…</p><button type="button" class="linkbtn" id="mentor-stop">Stop</button>';
+    box.scrollIntoView({ block: 'nearest' });
+    Sfx.play('mentor');
+    const mine = ctl = new AbortController();
+    // A newer question, or leaving the level, makes this answer stale: it must not touch the page any more.
+    const live = () => my === seq && cur === lv;
+    const write = text => { const el = $('mentor-text'); if (el && live() && text) { el.className = ''; el.textContent = text; } };
+    try {
+      const out = await ask(prompt(), { signal: mine.signal, onText: u => write(u.text) });
+      if (live()) {
+        write(out.text);
+        if (lv.kind !== 'sandbox') { const s = st(lv.id); if (!s.solved && !s.mentor) { s.mentor = true; save(); renderHints(); } }
+      }
+    } catch (e) {
+      const code = e && e.code, el = $('mentor-text');
+      if (GONE.indexOf(code) >= 0) { ask = null; $('btn-mentor').hidden = true; if (my === seq) box.hidden = true; }
+      else if (live() && el) {
+        if (mine.signal.aborted) { if (el.className === 'mute') box.hidden = true; }      // stopped by the player: keep what was written so far
+        else { el.className = 'mute'; el.textContent = COPY[code] || COPY.upstream_error; }
+      }
+    }
+    if (my === seq) { if (ctl === mine) ctl = null; const b = $('mentor-stop'); if (b) b.remove(); }
+  }
+  function stop() { if (ctl) { try { ctl.abort(); } catch (e) { /* ignore */ } ctl = null; } }
+  return { init, go, stop, get ready() { return !!ask; } };
+})();
+
+// ---------------------------------------------------------------- dialogs
+function showIntro() {
+  modal('<div class="intro"><div class="eyebrow">Signal tower · six floors · one drone</div><h2>The Pylon has been dark for years.</h2>' +
+    '<p>You are the new engineer. PIP, the maintenance drone, does exactly what your Python tells it to do, no more and no less.</p>' +
+    '<p>Each platform on the tower is a problem to solve with real code, from <code>move()</code> on the Boot Deck to the classic interview problems near the top. Bring a whole floor back online and you are promoted. Floor 5 makes you a Senior Engineer.</p>' +
+    '<div class="done-actions"><button type="button" class="btn primary" data-focus id="intro-start">Start on the Boot Deck</button><button type="button" class="btn ghost" id="intro-skip">I already know some Python</button></div></div>',
+  { onClose: () => { if (!S.intro) { S.intro = true; save(); } } });
+}
+function showMenu() {
+  const sp = [1, 2, 4].map(v => '<button type="button" class="seg' + (S.speed === v ? ' on' : '') + '" data-speed="' + v + '">' + v + '×</button>').join('');
+  Sfx.play('modal');
+  modal('<h2>Menu</h2><div class="rows">' +
+    '<div class="row"><label for="opt-music">Music</label><span class="vol"><input type="range" id="opt-music-vol" min="0" max="100" value="' + Math.round(S.musicVol * 100) + '" aria-label="Music volume"><input type="checkbox" id="opt-music"' + (S.music ? ' checked' : '') + '></span></div>' +
+    '<div class="row"><label for="opt-sound">Sound effects</label><span class="vol"><input type="range" id="opt-sfx-vol" min="0" max="100" value="' + Math.round(S.sfxVol * 100) + '" aria-label="Sound effects volume"><input type="checkbox" id="opt-sound"' + (S.sound ? ' checked' : '') + '></span></div>' +
+    '<div class="row"><span>Drone replay speed</span><span class="segs">' + sp + '</span></div>' +
+    '<label class="row" for="opt-unlock"><span>Unlock every level<small>For people who already know the basics and want to jump ahead.</small></span><input type="checkbox" id="opt-unlock"' + (S.unlockAll ? ' checked' : '') + '></label>' +
+    '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> indent · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
+    '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, collections, heapq, itertools, functools, bisect and a few more). Files, input(), async code and third-party packages are not included.</p>' +
+    '<p class="mute">' + (Cloud.ready ? 'Your progress is saved to your Claude account and in this browser.' : 'Your progress is saved in this browser, on this device.') + ' Music: “Pythonic Ambiance”.</p>' +
+    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>');
+}
+function showBadges() {
+  Sfx.play('modal');
+  modal('<h2>Badges</h2><p class="mute">' + Object.keys(S.badges).length + ' of ' + BADGES.length + ' earned.</p><ul class="badges">' + BADGES.map(b =>
+    '<li class="' + (S.badges[b.id] ? 'got' : '') + '"><span class="b-mark" aria-hidden="true">' + (S.badges[b.id] ? '★' : '·') + '</span><div><strong>' + esc(b.name) + '</strong><small>' + esc(b.desc) + '</small></div></li>').join('') +
+    '</ul><div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
+}
+function showCodex(openId) {
+  if (openId) {
+    const lv = LEVELS[INDEX[openId]];
+    modal('<button type="button" class="btn ghost" id="codex-back">‹ All levels</button><div class="eyebrow" style="color:' + zoneOf(lv).color + '">Floor ' + lv.zone + ' · ' + esc(lv.concept) + '</div><h2>' + esc(lv.title) + '</h2><div class="prose">' + lv.lesson + '</div>' +
+      '<div class="done-actions"><button type="button" class="btn primary" data-go="' + INDEX[openId] + '">Go to this level</button></div>', { wide: true });
+    hl($('modal-body'));
+    return;
+  }
+  let h = '<h2>Codex</h2><p class="mute">Every lesson you have reached. Open one to read it again.</p>';
+  for (const z of ZONES) {
+    const ls = zoneLevels(z.n);
+    if (!ls.length) continue;
+    h += '<h3 style="color:' + z.color + '">Floor ' + z.n + ' · ' + esc(z.name) + '</h3><p class="mute">' + esc(z.blurb) + '</p><ol class="codex">' + ls.map(l => {
+      const i = INDEX[l.id], open = isUnlocked(i);
+      return '<li><button type="button" class="codex-row' + (open ? '' : ' locked') + '"' + (open ? ' data-codex="' + l.id + '"' : ' disabled') + '><span class="c-n">' + l.order + '</span><span class="c-t">' + esc(l.title) + '<small>' + esc(l.concept) + (l.classic ? ' · ' + esc(l.classic) : '') + '</small></span>' + (isSolved(i) ? starsHtml(S.levels[l.id].stars) : open ? '<span class="chip">open</span>' : '<span class="chip">locked</span>') + '</button></li>';
+    }).join('') + '</ol>';
+  }
+  modal(h, { wide: true });
+}
+async function showBoard() {
+  modal('<h2>Leaderboard</h2><p class="mute" id="board-note">Loading…</p><div id="board-body"></div><div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
+  if (!Cloud.ready) { $('board-note').textContent = 'The leaderboard is available when this page is opened from claude.ai by someone who is signed in. Your progress is still saved on this device.'; return; }
+  let rows = null;
+  try { rows = await Cloud.board(); } catch (e) { rows = null; }
+  if (!$('board-note')) return;
+  if (!rows) { $('board-note').textContent = 'The leaderboard could not be reached just now.'; return; }
+  $('board-note').textContent = S.board ? 'Your XP is shown to everyone who can open this page.' : 'Only people who join are listed. Joining shows your name, rank and XP to everyone who can open this page.';
+  const body = $('board-body');
+  body.innerHTML = '<button type="button" class="btn' + (S.board ? '' : ' primary') + '" id="board-toggle">' + (S.board ? 'Leave the leaderboard' : 'Join the leaderboard') + '</button>' +
+    (rows.length ? '<ol class="board"></ol>' : '<p class="mute">Nobody has joined yet.</p>');
+  const ol = body.querySelector('.board');
+  if (ol) rows.forEach((r, i) => {
+    const li = document.createElement('li');
+    if (r.me) li.className = 'me';
+    li.innerHTML = '<span class="b-n">' + (i + 1) + '</span><span class="b-name"></span><span class="b-rank"></span><span class="b-xp"></span>';
+    li.querySelector('.b-name').textContent = (r.name || 'Engineer') + (r.me ? ' (you)' : '');
+    li.querySelector('.b-rank').textContent = RANKS[Math.max(0, Math.min(RANKS.length - 1, r.rank | 0))];
+    li.querySelector('.b-xp').textContent = num(r.xp | 0) + ' XP · ★ ' + (r.stars | 0);
+    ol.appendChild(li);
+  });
+}
+function confirmBox(title, text, yes, fn) {
+  modal('<h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="done-actions"><button type="button" class="btn primary" id="confirm-yes">' + esc(yes) + '</button><button type="button" class="btn ghost" data-focus id="menu-close">Cancel</button></div>');
+  $('confirm-yes').onclick = () => { closeModal(); fn(); };
+}
+
+// ---------------------------------------------------------------- events
+const CMD_TEXT = { 'for i in range(n):': 'for i in range(3):', 'while condition:': 'while front_is_clear():', 'if condition:': 'if on_shard():', 'if / elif / else': 'if front_is_clear():', 'def name():': 'def my_trick():' };
+function bind() {
+  document.addEventListener('click', e => {
+    const t = e.target.closest('button, [data-zone]');
+    if (!t) { if (e.target.id === 'modal') closeModal(); return; }
+    const id = t.id;
+    if (t.dataset.zone) { const ls = zoneLevels(+t.dataset.zone); const firstOpen = ls.find(l => !isSolved(INDEX[l.id])) || ls[0]; Sfx.play('select'); selectLevel(INDEX[firstOpen.id]); return; }
+    if (t.dataset.tab) { Sfx.play('click'); showTab(t.dataset.tab); return; }
+    if (t.dataset.cmd) { editor.insert(CMD_TEXT[t.dataset.cmd] || t.dataset.cmd); return; }
+    if (t.dataset.ins !== undefined) { editor.insert(t.dataset.ins); return; }
+    if (t.dataset.speed) { S.speed = +t.dataset.speed; save(); document.querySelectorAll('[data-speed]').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed)); return; }
+    if (t.dataset.codex) { showCodex(t.dataset.codex); return; }
+    if (t.dataset.trace !== undefined) { startTrace(+t.dataset.trace); return; }
+    if (t.dataset.go) { const i = +t.dataset.go; closeModal(); if (mode === 'level') closeLevel(); selectLevel(i); return; }
+    switch (id) {
+      case 'card-prev': Sfx.play('select'); selectLevel(hubSel - 1); break;
+      case 'card-next': Sfx.play('select'); selectLevel(hubSel + 1); break;
+      case 'card-enter': openLevel(hubSel); break;
+      case 'btn-back': closeLevel(); break;
+      case 'go-code': showTab('code'); editor.focus(); break;
+      case 'btn-run': run(); break;
+      case 'btn-trace': if (trace) closeTrace(); else startTrace(); break;
+      case 'tr-close': closeTrace(); break;
+      case 'tr-first': traceI = 0; renderTraceStep(); break;
+      case 'tr-last': if (trace) { traceI = trace.steps.length - 1; renderTraceStep(); } break;
+      case 'tr-prev': traceGo(-1); break;
+      case 'tr-next': traceGo(1); break;
+      case 'tr-play':
+        if (tracePlay) { clearInterval(tracePlay); tracePlay = 0; t.textContent = 'Play'; }
+        else if (trace) { if (traceI >= trace.steps.length - 1) traceI = 0; t.textContent = 'Pause'; renderTraceStep(); tracePlay = setInterval(() => traceGo(1), 520); }
+        break;
+      case 'btn-mentor': Mentor.go(); break;
+      case 'mentor-stop': Mentor.stop(); break;
+      case 'btn-hint': { const s = st(cur.id); if (s.hints < cur.hints.length) { s.hints++; Sfx.play('hint'); save(); closeTrace(); renderHints(); $('hints').lastElementChild.scrollIntoView({ block: 'nearest' }); } break; }
+      case 'btn-reset': confirmBox('Reset your code?', 'The editor goes back to the starting code for this level. Your stars are kept.', 'Reset the code', () => { editor.set(cur.starter); onCodeChange(); $('results').innerHTML = ''; setStatus(''); lastRes = null; buildArena(); }); break;
+      case 'btn-replay': if (cur && cur.kind === 'robot' && !busy) { World.resetRobot(); editor.markActive(null); } break;
+      case 'sol-reveal': confirmBox('Reveal the solution?', 'You will see a full working answer. This level will then award 1 star instead of 3.', 'Reveal it', () => { st(cur.id).saw = true; save(); renderSolution(); }); break;
+      case 'sol-load': editor.set(cur.solution); onCodeChange(); showTab('code'); break;
+      case 'btn-music': S.music = !S.music; save(); renderHud(); Music.apply(); Sfx.play('click'); break;
+      case 'btn-menu': case 'btn-menu2': showMenu(); break;
+      case 'btn-codex': Sfx.play('modal'); showCodex(); break;
+      case 'codex-back': showCodex(); break;
+      case 'btn-badges': showBadges(); break;
+      case 'btn-lab': enter(SANDBOX); break;
+      case 'btn-board': Sfx.play('modal'); showBoard(); break;
+      case 'board-toggle': S.board = !S.board; save(); if (S.board) Cloud.flushNow().then(showBoard); else Cloud.leave().then(showBoard); break;
+      case 'menu-close': closeModal(); break;
+      case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
+        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board };
+        S = Object.assign({ v: 1, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, t: 0 }, keep);
+        save(); if (mode === 'level') closeLevel(); selectLevel(0, true); refreshProgress(); toast('Progress erased.');
+      }); break;
+      case 'intro-start': closeModal(); selectLevel(0); break;
+      case 'intro-skip': S.unlockAll = true; S.intro = true; save(); closeModal(); refreshProgress(); toast('Every level is unlocked. Pick any platform.'); break;
+      case 'done-next': { const i = INDEX[cur.id] + 1; closeModal(); if (isUnlocked(i)) openLevel(i); else closeLevel(i - 1); break; }
+      case 'done-solution': closeModal(); showTab('solution'); break;
+      case 'done-retry': closeModal(); cleanAttempt(); break;
+      case 'retry-clean': confirmBox('Start a clean attempt?', 'The editor goes back to the starting code and the hints are hidden again. Solve the level without hints, the mentor or the Solution tab to earn the third star.', 'Start clean', cleanAttempt); break;
+      case 'done-tower': { const i = INDEX[cur.id]; closeModal(); closeLevel(i); if (i + 1 < LEVELS.length) setTimeout(() => selectLevel(i + 1), 500); break; }
+    }
+  });
+  document.addEventListener('change', e => {
+    const id = e.target.id;
+    if (id === 'opt-sound') { S.sound = e.target.checked; save(); Sfx.play('click'); }
+    else if (id === 'opt-music') { S.music = e.target.checked; save(); renderHud(); Music.apply(); }
+    else if (id === 'opt-unlock') { S.unlockAll = e.target.checked; save(); refreshProgress(); }
+    else if (id === 'opt-sfx-vol') Sfx.play('pass');           // let them hear the new level
+    else if (id === 'tr-test') startTrace(+e.target.value);
+  });
+  document.addEventListener('input', e => {
+    const id = e.target.id;
+    if (id === 'opt-music-vol') { S.musicVol = e.target.value / 100; if (!S.music && S.musicVol > 0) { S.music = true; if ($('opt-music')) $('opt-music').checked = true; renderHud(); } save(); Music.apply(); }
+    else if (id === 'opt-sfx-vol') { S.sfxVol = e.target.value / 100; save(); }
+    else if (id === 'tr-slider') { traceI = +e.target.value; renderTraceStep(); }
+  });
+  $('keys').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });    // keep the keyboard open on phones
+  document.addEventListener('keydown', e => {
+    Music.start();
+    if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
+    const a = document.activeElement, typing = a && /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName) && a.type !== 'range', onButton = a && a.tagName === 'BUTTON';
+    if (mode === 'hub' && !typing) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); selectLevel(hubSel + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); selectLevel(hubSel - 1); }
+      else if (e.key === 'Enter' && !onButton) openLevel(hubSel);
+    } else if (mode === 'level') {
+      if (trace && !typing && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); traceGo(e.key === 'ArrowRight' ? 1 : -1); }
+      else if (e.key === 'Escape' && !typing) { if (trace) closeTrace(); else closeLevel(); }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !typing) { e.preventDefault(); run(); }
+    }
+  });
+  for (const ev of ['pointerdown', 'pointerup', 'click', 'touchend']) document.addEventListener(ev, () => Music.start(), true);
+  window.addEventListener('pagehide', () => { if (cur) { st(cur.id).code = editor.value; save(); } });
+}
+
+// ---------------------------------------------------------------- boot
+function boot() {
+  loadLocal();
+  if (!LEVELS.length) { document.body.textContent = 'Pylon could not load its levels.'; return; }
+  editor = window.PylonEditor($('editor'), { onRun: run, onChange: onCodeChange });
+  bind();
+  // The leaderboard, cloud saves and the mentor need the claude.ai viewer. Anywhere else the game runs on its own and saves in the browser.
+  $('btn-board').hidden = !(window.claude && typeof window.claude.use === 'function');
+  setMode('hub');
+  checkBadges(true);
+  renderHud(); renderFloors();
+  const start = () => {
+    refreshProgress();
+    const i = S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex());
+    selectLevel(i, true);
+    if (S.open === 'sandbox') enter(SANDBOX);
+    else if (S.open && INDEX[S.open] !== undefined && isUnlocked(INDEX[S.open])) openLevel(INDEX[S.open]);
+    else if (!S.intro) showIntro();
+  };
+  const ready = RealWorld.ok ? RealWorld.init($('stage'), $('gl'), { levels: LEVELS, zones: ZONES }, { onSelect: i => { Sfx.play('select'); selectLevel(i); }, onOpen: openLevel, sfx: Sfx.play }) : Promise.resolve(false);
+  ready.then(ok => { if (!ok) { RealWorld.ok = false; $('nogl').hidden = false; } start(); }).catch(() => { RealWorld.ok = false; $('nogl').hidden = false; start(); });
+  // Progress saved from another device arrives a moment after the page starts. Fold it in without disturbing a level in play.
+  Cloud.init().then(merged => {
+    if (!merged) return;
+    checkBadges(true);
+    if (mode !== 'hub') { renderPanelStars(); renderHints(); renderSolution(); return; }
+    if (S.intro && $('modal-body').querySelector('.intro')) closeModal();
+    selectLevel(S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex()), true);
+    refreshProgress();
+    Music.apply();
+  });
+  Mentor.init();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();

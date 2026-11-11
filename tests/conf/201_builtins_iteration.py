@@ -1,0 +1,51 @@
+# Iteration builtins: len, sorted, reversed, enumerate, zip, map, filter, any, all
+print("len:", len("abc"), len([1, 2]), len((1,)), len({"a": 1}), len({1, 2}), len(range(10)), len(""))
+print("sorted:", sorted([3, 1, 2]), sorted("bca"), sorted((2, 1)), sorted({"b": 1, "a": 2}))
+print("sorted options:", sorted([3, 1, 2], reverse=True), sorted(["bb", "a", "ccc"], key=len, reverse=True))
+print("reversed:", list(reversed([1, 2, 3])), list(reversed("abc")), list(reversed(range(3))),
+      "".join(reversed("abc")), tuple(reversed((1, 2, 3))))
+print("enumerate:", list(enumerate("ab")), list(enumerate(["x", "y"], 1)), list(enumerate("ab", start=10)))
+for i, ch in enumerate("xyz", 1):
+    print("enumerate loop:", i, ch)
+print("dict from enumerate:", dict(enumerate("ab")), {c: i for i, c in enumerate("ab")})
+print("zip:", list(zip([1, 2, 3], "abc")), list(zip("ab", "cd", "ef")))
+print("zip unequal:", list(zip([1, 2, 3], "ab")), list(zip([], [1])), list(zip(range(5), "xy", [True])))
+print("zip one/none:", list(zip("ab")), list(zip()))
+print("dict from zip:", dict(zip(["a", "b"], [1, 2])))
+pairs = [(1, "a"), (2, "b"), (3, "c")]
+nums, letters = zip(*pairs)
+print("unzip:", nums, letters)
+print("parallel loop:", [a * b for a, b in zip([1, 2, 3], [4, 5, 6])])
+print("adjacent pairs:", list(zip([1, 2, 3, 4], [1, 2, 3, 4][1:])))
+print("transpose:", [list(row) for row in zip(*[[1, 2, 3], [4, 5, 6]])])
+print("map:", list(map(str, [1, 2])), list(map(len, ["a", "bb"])), list(map(abs, [-1, 2])))
+print("map lambda:", list(map(lambda x: x * 2, range(4))), list(map(lambda a, b: a + b, [1, 2], [10, 20])))
+print("map unequal:", list(map(lambda a, b: a * b, [1, 2, 3], [10, 20])))
+print("map to int:", list(map(int, "1 2 3".split())), sum(map(int, "456")))
+print("filter:", list(filter(lambda n: n % 2 == 0, range(8))), list(filter(None, [0, 1, "", "a", [], None, 2])))
+print("filter chars:", "".join(filter(lambda c: c.isalpha(), "a1b2c3")))
+print("any:", any([0, 0, 1]), any([0, "", None]), any([]), any(n > 3 for n in [1, 5]), any("abc"))
+print("all:", all([1, "a", [0]]), all([1, 0]), all([]), all(n > 0 for n in [1, 5]), all(""))
+
+def check(n):
+    print("  checking", n)
+    return n > 1
+
+print("any stops early:")
+print("  any ->", any(check(n) for n in [1, 2, 3]))
+print("all stops early:")
+print("  all ->", all(check(n) for n in [2, 1, 3]))
+z = zip([1, 2], "ab")
+print("zip object is single-use:", list(z), list(z))
+f = filter(None, [1, 0, 2])
+print("filter object is an iterator:", next(f), list(f))
+print("chained:", sorted(map(abs, filter(lambda n: n % 2, [-3, 2, -1, 4, 5])), reverse=True))
+print("sum/max over map:", sum(map(len, ["a", "bb", "ccc"])), max(map(abs, [-9, 4])))
+words = ["delta", "alpha", "charlie", "bravo"]
+print("enumerate sorted:", [f"{i}:{w}" for i, w in enumerate(sorted(words), 1)])
+print("index of longest:", max(enumerate(words), key=lambda p: len(p[1]))[0])
+print("reversed sorted:", list(reversed(sorted(words))) == sorted(words, reverse=True))
+print("zip with enumerate:", [(i, a, b) for i, (a, b) in enumerate(zip("ab", "cd"))])
+print("all equal:", len(set([2, 2, 2])) == 1, all(x == 2 for x in [2, 2, 3]))
+print("is sorted:", all(a <= b for a, b in zip([1, 2, 2, 5], [1, 2, 2, 5][1:])))
+print("count matches:", sum(1 for w in words if "a" in w), len(list(filter(lambda w: len(w) > 5, words))))

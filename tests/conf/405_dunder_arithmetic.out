@@ -1,0 +1,15 @@
+add: Vec(4, 6)
+sub: Vec(2, 2)
+mul: Vec(6, 8)
+rmul: Vec(6, 8)
+truediv: Vec(1.5, 2.0)
+floordiv: Vec(1, 2)
+mod: Vec(0, 1)
+neg: Vec(-3, -4)
+abs: 5.0
++= without __iadd__ rebinds: Vec(4, 6) Vec(3, 4) False
+add: Money(400) Money(105)
+radd: Money(105)
+sum() starts at 0 and uses radd: Money(350)
+__iadd__ mutates in place: Basket(['apple', 'pear']) True
+__add__ makes a new object: Basket(['apple', 'pear', 'fig']) Basket(['apple', 'pear']) False

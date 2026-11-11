@@ -1,0 +1,42 @@
+literals: True False None
+bool is int: True True
+as numbers: 2 10 1 0.5 -1
+equality with ints: True True False
+sum of bools: 3
+count matches: 2
+index with bool: yes no
+int/str of bool: 1 True False False!
+bool as dict key: {True: 't', False: 'f'}
+bool(): True False True False True False
+bool of containers: False True False False True False
+bool of None: False
+bool of strings: True True True
+no-arg bool: False
+not: False True True False
+and/or results: 5 x 0 None
+comparison gives bool: True bool
+result types: int bool
+ops on bools: False True True True
+all/any: True True False False
+sort bools: [False, True, True]
+min/max: False True
+format: True False None
+is None: True False
+None equality: True False False False
+None in list: [None, None] True 1
+str/repr of None: None None None!
+type names: NoneType bool
+function without return: None True
+missing return path: value None
+inside
+print returns None: None
+list.sort returns None: None
+dict.get missing: None True
+None with or: fallback None
+None as dict key: none key
+explicit None check: default
+truthy filter: [True, 1, 'a']
+only None removed: [True, False, 0, 1, '', 'a']
+singletons: True True True
+bools as ints: 1 2
+toggled flag: True True

@@ -1,0 +1,44 @@
+len: 3 2 1 1 2 10 0
+sorted: [1, 2, 3] ['a', 'b', 'c'] [1, 2] ['a', 'b']
+sorted options: [3, 2, 1] ['ccc', 'bb', 'a']
+reversed: [3, 2, 1] ['c', 'b', 'a'] [2, 1, 0] cba (3, 2, 1)
+enumerate: [(0, 'a'), (1, 'b')] [(1, 'x'), (2, 'y')] [(10, 'a'), (11, 'b')]
+enumerate loop: 1 x
+enumerate loop: 2 y
+enumerate loop: 3 z
+dict from enumerate: {0: 'a', 1: 'b'} {'a': 0, 'b': 1}
+zip: [(1, 'a'), (2, 'b'), (3, 'c')] [('a', 'c', 'e'), ('b', 'd', 'f')]
+zip unequal: [(1, 'a'), (2, 'b')] [] [(0, 'x', True)]
+zip one/none: [('a',), ('b',)] []
+dict from zip: {'a': 1, 'b': 2}
+unzip: (1, 2, 3) ('a', 'b', 'c')
+parallel loop: [4, 10, 18]
+adjacent pairs: [(1, 2), (2, 3), (3, 4)]
+transpose: [[1, 4], [2, 5], [3, 6]]
+map: ['1', '2'] [1, 2] [1, 2]
+map lambda: [0, 2, 4, 6] [11, 22]
+map unequal: [10, 40]
+map to int: [1, 2, 3] 15
+filter: [0, 2, 4, 6] [1, 'a', 2]
+filter chars: abc
+any: True False False True True
+all: True False True True True
+any stops early:
+  checking 1
+  checking 2
+  any -> True
+all stops early:
+  checking 2
+  checking 1
+  all -> False
+zip object is single-use: [(1, 'a'), (2, 'b')] []
+filter object is an iterator: 1 [2]
+chained: [5, 3, 1]
+sum/max over map: 6 9
+enumerate sorted: ['1:alpha', '2:bravo', '3:charlie', '4:delta']
+index of longest: 2
+reversed sorted: True
+zip with enumerate: [(0, 'a', 'c'), (1, 'b', 'd')]
+all equal: True False
+is sorted: True
+count matches: 4 1

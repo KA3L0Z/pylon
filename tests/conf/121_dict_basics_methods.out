@@ -1,0 +1,34 @@
+literal: {'a': 1, 'b': 2} 2
+dict(): {} {'x': 1, 'y': 2} {'k': 'v', 'n': 0} {'a': 1, 'b': 2}
+from dict: True False
+access: 1 1 None 0
+add/overwrite: {'a': 100, 'b': 2, 'c': 3}
+in: True False False True
+del: {'a': 100, 'c': 3}
+key types: {1: 'int', '1': 'str', (1, 2): 'tuple', None: 'none', 2.5: 'float'}
+KeyError for: 'missing'
+pop: 100 {'c': 3}
+pop default: fallback None
+pop missing without default raises KeyError
+update dict: {'c': 30, 'x': 1}
+update kwargs/pairs: {'c': 30, 'x': 1, 'y': 2, 'z': 3}
+setdefault existing: 1 1
+setdefault new: 5 5
+setdefault without value: None True
+setdefault grouping: {'a': ['apple', 'avocado'], 'b': ['banana', 'blueberry'], 'c': ['cherry']}
+popitem: ('v', None) ('w', 5) {'c': 30, 'x': 1, 'y': 2, 'z': 3}
+fromkeys: {'a': None, 'b': None, 'c': None} {'x': 0, 'y': 0}
+copy: {'c': 30, 'x': 1, 'y': 2, 'z': 3} {'c': 30, 'x': 1, 'y': 2, 'z': 3, 'new': 1}
+clear: {} 0 False
+popitem on empty dict raises KeyError
+merge |: {'a': 1, 'b': 20, 'c': 30}
+merge |=: {'a': 1, 'b': 2}
+equality ignores order: True
+counting with get: {'m': 1, 'i': 4, 's': 4, 'p': 2}
+nested: {'user': {'name': 'ann', 'tags': ['x', 'y'], 'age': 30}} ann
+nested get: n/a
+shallow copy shares inner dict: bob False
+key with largest value: i
+sum/len/sorted: 11 4 ['i', 'm', 'p', 's']
+bool: False True
+bound method as key: i m

@@ -1,0 +1,40 @@
+upper: HELLO WORLD
+lower: hello world
+capitalize: Hello world Abc 1abc
+title: Hello World The Quick-Brown Fox Hello World
+swapcase: HELLO wORLD pYtHoN 3
+original unchanged: hello World
+digits/punctuation unaffected: ABC123!? abc123!?
+empty: '' '' ''
+case-insensitive compare: True
+chained: Mixed
+capitalize lowers the rest: Hello world
+swapcase twice: Hello
+strip: 'padded text'
+lstrip: 'padded text   '
+rstrip: '   padded text'
+strip mixed whitespace: 'text'
+strip chars: hi hi c
+lstrip chars: 123 hixx
+rstrip chars: path 3.14 line|
+inner whitespace untouched: 'a  b'
+nothing to strip: 'abc' ''
+strip everything: '' ''
+argument is a set of chars: example
+strip digits: abc
+rstrip newline: 'text' 'text '
+measure indentation: 4
+removeprefix: login login
+removesuffix: report report
+removed only once: aab baa
+removeprefix vs lstrip: b ab
+remove whole string: '' ''
+clean names: ['Alice', 'Bob', 'Charlie']
+upper list: ['ALICE', 'BOB', 'CHARLIE']
+parsed: 'key' 'value'
+method on literal: SHOUT! quiet
+case checks after change: True True
+capitalize each word: The Cat Sat
+first letter upper: The cat sat
+strip then compare: True False
+title after digit or apostrophe: 2Nd Place It'S Here

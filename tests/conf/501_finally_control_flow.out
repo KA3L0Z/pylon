@@ -1,0 +1,18 @@
+  finally runs before the function returns
+return in try: from try
+  cleanup after except
+return in except: handled
+finally mutates the returned list: [1, 2]
+break/continue through finally: ['body 0', 'finally 0', 'finally 1', 'body 2', 'finally 2', 'finally 3']
+  checked 3
+  checked 5
+  checked 6
+return inside loop + finally: 6
+  inner finally
+  outer except
+  outer finally
+nested: recovered
+  while finally 1
+  while finally 2
+  while finally 3
+while exited at 3

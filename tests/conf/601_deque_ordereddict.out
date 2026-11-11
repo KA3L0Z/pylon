@@ -1,0 +1,31 @@
+deque: deque([1, 2, 3]) 3 1 3 True
+append both ends: deque([0, 1, 2, 3, 4])
+pop both ends: 4 0 deque([1, 2, 3])
+extend: deque([1, 2, 3, 7, 8]) [1, 2, 3, 7, 8]
+rotate right: deque([8, 1, 2, 3, 7])
+rotate left: deque([2, 3, 7, 8, 1])
+iterate: [4, 6, 14, 16, 2] 21 8
+empty: deque([]) False 0
+popleft from empty raises IndexError
+fifo queue: ['a', 'b', 'c']
+maxlen window: [1]
+maxlen window: [1, 2]
+maxlen window: [1, 2, 3]
+maxlen window: [2, 3, 4]
+maxlen window: [3, 4, 5]
+maxlen repr: deque([3, 4, 5], maxlen=3)
+appendleft drops from the right: [0, 3, 4]
+from iterables: deque(['a', 'b', 'c']) deque([0, 1, 2]) deque([3, 4], maxlen=2)
+as stack: 2 1 0
+rotate string: deabc
+rotate more than length: abcde
+ordered: [('b', 1), ('a', 2), ('c', 3)] 3 2
+move_to_end: ['a', 'c', 'b']
+move to front: ['c', 'a', 'b']
+popitem last: ('b', 1) ['c', 'a']
+popitem first: ('c', 3) ['a']
+update keeps position: [('a', 99), ('z', 26)]
+from pairs: ['x', 'y'] [1, 2] True 0
+dict methods work: 1 {'y': 2} ['a', 'b']
+equal to a plain dict: True
+lru order: ['c', 'a', 'd']

@@ -1,0 +1,8 @@
+basic: ['enter a', 'body sees a', 'exit a (no error)']
+exit runs on error: ['enter b', 'exit b (ValueError)', 'caught inside with']
+two managers exit in reverse: ['enter outer', 'enter inner', 'body', 'exit inner (no error)', 'exit outer (no error)']
+suppressed: ZeroDivisionError | execution continues
+contextmanager: ['<b>', 'B', '</b>']
+generator finally runs on error: ['<i>', '<u>', '</u>', '</i>', 'caught']
+  swallowed: KeyError
+after swallow

@@ -1,0 +1,15 @@
+len: 3
+getitem: Intro Outro
+setitem: Playlist(['Intro', 'Chorus', 'Outro'])
+delitem: Playlist(['Chorus', 'Outro']) 2
+contains: True False True
+iter: ['CHORUS', 'OUTRO'] ['Chorus', 'Outro'] ['Outro', 'Chorus']
+join/max/tuple: Chorus, Outro Outro ('Chorus', 'Outro')
+unpacking: Chorus Outro
+truthiness via __len__: True False empty
+IndexError propagates from __getitem__
+tuple index: 5 7 0 True False 6
+__bool__ wins over __len__: False True 99
+in conditions: ['empty', 'open'] True
+__call__: 15 7 2 True False
+callable object as function: [3, 6] [3, 2, 1]

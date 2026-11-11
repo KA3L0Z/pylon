@@ -1,0 +1,10 @@
+annotated variables: 3 0.5 minipy [True, False] {'a': 1} None (1, 'x') text set()
+builtin generics: [1, 2] {'k': [1]}
+add: 3 6
+find: 1 None
+apply: [0, 1, 4, 9]
+anything: 1 (2, 3) {'k': 'v'}
+not enforced: 3.5
+class with hints: Point(4, 6)
+__name__ is: __main__
+main ran, total: 6

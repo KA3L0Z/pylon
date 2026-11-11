@@ -1,0 +1,22 @@
+classify -5 -> negative
+classify 0 -> zero
+classify 7 -> small
+classify 10 -> large
+classify 99 -> large
+grades: ['A', 'A', 'B', 'C', 'F', 'F']
+simple if: x > 5
+else branch
+divisible by 7
+one-line if
+truthy int
+empty list is falsy
+combined condition
+nested: x is 7
+ternary: odd
+nested ternary: pos
+ternary assign: 1
+ternary in list: [1, 2, 'fizz', 4, 5, 'fizz']
+ternary none: missing
+ternary is lazy: 1
+label: adult
+empty list branch

@@ -1,0 +1,10 @@
+get 1: one
+  evicted 2
+get 2: -1
+  evicted 1
+get 1: -1 | get 3: three | get 4: four
+state: LRUCache(3=three, 4=four) 2 True False
+update moves to newest: LRUCache(4=four, 3=THREE)
+hits/misses: 3 2
+simple lru: ['c', 'd', 'b'] None B
+after touching b and adding e: ['d', 'b', 'e'] [('b', 'B'), ('d', 'D'), ('e', 'E')]

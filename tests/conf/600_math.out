@@ -1,0 +1,36 @@
+constants: 3.141592653589793 2.718281828459045 inf -inf
+sqrt: 4.0 1.4142135623730951 0.0 2.5 100000.0
+floor/ceil: 2 3 -3 -2 5 5
+floor/ceil types: int int
+trunc: 2 -2 7
+fabs: 3.0 2.5 float
+gcd: 6 1 9 6
+lcm: 12 21 5
+factorial: 1 120 2432902008176640000 265252859812191058636308480000000
+isqrt: 4 4 0 10000000000 9
+comb/perm: 10 1 2598960 20 720
+prod: 24 1 5.0 120
+hypot: 5.0 13.0 0.0
+log exact: 0.0 3.0 10.0 3.0 0.0
+log rounded: 2.302585 1.0 3.321928 0.30103 3.0 2.0
+sin/cos exact: 0.0 1.0
+sin/cos rounded: 1.0 -1.0 0.5 0.5 0.841471 0.540302
+isinf: True True False
+isnan: True False False
+inf compare: True True True 3 -5 True
+imported names: 9.0 3.1416 9
+pi formatting: 3.1416 3.14 3 3.14
+circle: 12.566 12.566
+distance: 5.0 5.0
+perfect squares: [1, 4, 9, 16, 25]
+is prime 97: True
+ceil division: 4 4 2
+digit count: 5 5
+reduce a fraction: 2 3
+sqrt vs power: True 7 7
+e: 2.71828 7.3891
+sum of sqrt: 6.1463
+running minimum from inf: 3
+sqrt of a negative raises ValueError
+factorial of a negative raises ValueError
+log(0) raises ValueError

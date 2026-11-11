@@ -1,0 +1,36 @@
+range 0
+range 1
+range 2
+char a
+char b
+char c
+list 10
+list 20
+dict key x
+dict key y
+enumerate 0 ann
+enumerate 1 bob
+zip 1 x
+zip 2 y
+zip 3 z
+down 10
+down 7
+down 4
+down 1
+loop var keeps its last value: 1
+else: no break happened
+break at 3
+else runs for an empty iterable
+odd 1
+odd 3
+odd 5
+inner 0 0
+inner 0 1
+inner 2 0
+inner 2 1
+primes: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+sum 1..100: 5050
+1 2 3 |
+4 5 6 |
+doubled: [[2, 4, 6], [8, 10, 12]]
+removed while iterating a copy: [1, 3]

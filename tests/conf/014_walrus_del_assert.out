@@ -1,0 +1,27 @@
+walrus in if: 6
+walrus value stays bound: 6
+walrus in while: 42
+walrus in while: 23
+walrus in while: 16
+stopped on: 15 left: [4, 8]
+walrus in comprehension: [10, 16]
+walrus in expression: 20
+found at: 6
+del name: x is gone
+del item: [1, 2, 3, 4, 5, 6]
+del last: [1, 2, 3, 4, 5]
+del slice: [1, 4, 5]
+del stepped slice: [1, 2, 4, 5, 7, 8]
+del everything: []
+del key: {'a': 1, 'c': 3}
+del several names: ok
+has attr: True
+after del attr: False
+assert failed: list too short
+assert without message: ''
+semicolons: 1 2 3
+one-liner
+two statements
+placeholder bodies return: None None
+empty class instance: True
+walrus running totals: [1, 6, 8, 16] 16

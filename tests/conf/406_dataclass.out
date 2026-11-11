@@ -1,0 +1,19 @@
+repr: Point(x=1, y=2) Point(x=5, y=0) [Point(x=1, y=2), Point(x=5, y=0)]
+fields: 1 2 0
+keyword init: Point(x=3, y=7) Point(x=1, y=0)
+eq: True False True False
+mutable: Point(x=10, y=3)
+default_factory gives separate lists: [100, 95] [90, 80] []
+methods: 97.5 85.0 0.0
+repr with defaults: Student(name='Ann', grades=[100, 95], tags={}, active=True)
+repr full: Student(name='Bob', grades=[90, 80], tags={}, active=False)
+eq compares all fields: True False
+str override: rect 2.0x3.5 | repr still generated: Rect(width=2.0, height=3.5, label='rect')
+method/property: 7.0 False True
+sort by key: ['a', 'c', 'b']
+list search uses eq: True False 2
+nested dataclass: Team(name='core', lead=Point(x=0, y=0), members=['ann'])
+nested eq: True True
+isinstance: True Team
+missing required field raises TypeError
+different classes are never equal: False

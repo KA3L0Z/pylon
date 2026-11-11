@@ -1,0 +1,19 @@
+count 0
+count 1
+count 2
+after loop: 3
+collatz steps for 27: 111
+loop body 1
+loop body 3
+loop body 4
+stopped at 5
+else runs when the condition becomes false, i = 3
+break skips else
+else runs even if the body never ran
+pop 3
+pop 2
+pop 1
+gcd: 6
+digits reversed: [5, 4, 0, 9]
+pass loop: 5
+found 37 in 7 guesses

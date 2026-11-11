@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pylon (local test of the mentor)</title>
+<!-- Local test page, never published. It stands in for claude.ai's "sample" capability so the mentor's
+     interface can be exercised from the preview server. Set window.__mentorMode in the console to pick a behaviour:
+     'ok' (default, streams an answer), 'slow' (streams slowly, so Stop can be pressed), or an error code such as
+     'rate_limited' or 'not_granted'. -->
+<script>
+window.__mentorMode = 'ok';
+window.__mentorCalls = [];
+const fakeSample = (input, opts) => new Promise((resolve, reject) => {
+  opts = opts || {};
+  const mode = window.__mentorMode, words = 'Your loop stores each number before it looks for its partner, so a number can pair with itself. Look at the line that computes partner: the two values must add up to target, so think about which operation gets you from n to the number you still need.'.split(' ');
+  window.__mentorCalls.push({ input, mode });
+  if (mode !== 'ok' && mode !== 'slow') { setTimeout(() => reject({ code: mode, message: 'test error ' + mode }), 150); return; }
+  let i = 0, text = '';
+  const timer = setInterval(() => {
+    if (opts.signal && opts.signal.aborted) { clearInterval(timer); reject({ code: 'aborted', message: 'stopped', text }); return; }
+    text += (i ? ' ' : '') + words[i++];
+    if (opts.onText) opts.onText({ text, delta: words[i - 1] });
+    if (i >= words.length) { clearInterval(timer); resolve({ text, truncated: false }); }
+  }, mode === 'slow' ? 400 : 15);
+});
+window.claude = { use: name => Promise.resolve(name === 'sample' ? fakeSample : null) };
+fetch('../index.html').then(r => r.text()).then(html => {
+  html = html.replace(/(src|href)="(js\/|audio\/)/g, '$1="../$2');
+  document.open(); document.write(html); document.close();
+});
+</script>

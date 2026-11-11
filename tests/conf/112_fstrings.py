@@ -1,0 +1,48 @@
+# f-strings: expressions and format specifications
+name, age, pi = "Ada", 36, 3.14159265
+d = {"k": 5}
+print(f"basic: {name} is {age}")
+print(f"expressions: {age + 1} {name.upper()} {len(name)} {age > 30} {[n * 2 for n in range(3)]}")
+print(f"calls and indexing: {max(1, 2)} {name[0]} {name[::-1]} {'yes' if age else 'no'}")
+print(f"dict/tuple access: {d['k']} {(1, 2)[1]} {'a,b'.split(',')}")
+print(f"width: [{name:10}] [{age:5}] [{pi:12}]")
+print(f"align: [{name:<8}] [{name:>8}] [{name:^8}] [{age:<6}] [{age:^6}]")
+print(f"fill: [{name:*<8}] [{name:->8}] [{name:.^9}] [{age:0>5}] [{age:#^6}]")
+print(f"zero pad: [{age:05}] [{age:05d}] [{-age:05d}] [{pi:08.3f}]")
+print(f"sign: [{age:+}] [{-age:+}] [{pi:+.2f}] [{0:+}] [{age:-}]")
+print(f"thousands: {1234567:,} {1234.5678:,.2f} {-9876543:,} {999:,} {1000:,}")
+print(f"fixed: {pi:.2f} {pi:.0f} {pi:.5f} {2:.2f} {1 / 3:.3f} {2.25:.1f} {1e6:.1f}")
+print(f"fixed default precision: {pi:f} {1.0:f}")
+print(f"exponent: {123456.789:e} {123456.789:.2e} {0.00012:.1e} {1e-10:.3e}")
+print(f"percent: {0.25:%} {0.25:.0%} {0.1234:.1%} {1:.0%} {1.5:.2%}")
+print(f"int types: {255:d} {255:b} {255:x} {255:X} {255:o}")
+print(f"int types padded: [{5:8b}] [{5:08b}] [{255:6x}] [{255:>6X}] [{8:<4o}]")
+print(f"repr conversion: {name!r} {'it' + 's'!r} {None!r} {1.0!r} {[name]!r}")
+print(f"repr with width: [{name!r:>8}] [{'x'!r:<5}]")
+width, prec = 10, 3
+print(f"nested: [{pi:{width}.{prec}f}] [{name:>{width}}] [{age:0{width}d}] [{name:^{width}}]")
+print(f"braces: {{literal}} {{{age}}} {{}}")
+print(f"bool/None: {True} {None} [{str(None):>6}] [{str(True):<6}]")
+print(f"negative numbers: [{-5:4}] [{-5:<4}] [{-5:^5}] [{-3.14159:8.2f}] [{-3.14159:<8.2f}]")
+print(f"float defaults: {1.0} {0.1 + 0.2} {1e20} {1 / 3} {100.0:.0f} {2.50}")
+print(f"multi-part: {name:<6}|{age:>4}|{pi:>8.3f}|")
+print(f"adjacent: {name}{age}{pi:.1f}")
+print("concatenated " f"f-string {age} " "and plain")
+print(f"quotes inside: {name + '!'} {d['k'] * 2} {'-'.join(['a', 'b'])}")
+print(f"big numbers: {2 ** 64:,} {10 ** 12:.2e} {123456789:>15,} {1234567.891:15,.2f}|")
+print(f"center with odd padding: [{'ab':^5}] [{'abc':^6}] [{7:^4}] [{'x':*^4}]")
+rows = [("apple", 3, 0.5), ("kiwi", 12, 0.25), ("watermelon", 1, 3.0)]
+print(f"{'item':<12}{'qty':>4}{'price':>8}")
+for item, qty, price in rows:
+    print(f"{item:<12}{qty:>4}{price:>8.2f}")
+total = sum(q * p for _, q, p in rows)
+print(f"{'total':<12}{'':>4}{total:>8.2f}")
+for n in (1, 10, 100):
+    print(f"{n:>4} {n * n:>6} {n / 3:>8.3f} {n:03d} {n:<4}|")
+value = 42
+print(f"one value: {value} {value:5d} {value:<5d}| {value:x} {value:b} {value:.1f} {value:,}")
+print(f"expression formatting: {value * 2:>6} {value / 5:.2f} {value % 5:02d} {(value, 1)}")
+print(f"method results: {name.lower():>6} {name.center(9, '*')} {' pad '.strip()!r}")
+print(f"time: {7:02d}:{5:02d}:{9:02d} | date: {2024}-{3:02d}-{9:02d}")
+print(f"{'left':<10}|{'center':^10}|{'right':>10}|")
+print(f"default alignment: [{'text':6}] [{12:6}] [{1.5:6}]")

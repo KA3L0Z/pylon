@@ -1,0 +1,11 @@
+getter: 25 77.0
+setter: 100 212.0
+augmented assignment through property: 110
+validation: below absolute zero | value kept: 110
+property without setter: AttributeError
+classmethod constructor: Date(2024, 2, 29)
+staticmethod: True False True
+classmethod builds the subclass: Stamp(1999, 12, 31)
+class-level counter: 2
+diamond super() chain: ['Both', 'Left', 'Right', 'Base']
+each class alone: ['Left', 'Base'] ['Right', 'Base']

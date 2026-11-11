@@ -1,0 +1,8 @@
+fewest coins: 3 -1 0 6 -1
+number of ways: 4 0 1 49
+coins used: [1, 5, 5] [3, 3] None []
+greedy is not always optimal: [4, 1, 1] vs [3, 3]
+greedy on standard coins: [25, 25, 10, 1, 1, 1]
+top-down memo: 3 6 27
+dp table for [1, 3, 4]: [0, 1, 2, 1, 1, 2, 2, 2, 2, 3, 3]
+climbing stairs with 1 or 2 steps: [1, 2, 3, 5, 8, 13, 21, 34]

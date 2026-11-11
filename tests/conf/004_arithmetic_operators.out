@@ -1,0 +1,42 @@
+add: 10
+sub: -3
+mul: 21
+true div: 3.5
+true div exact: 2.0
+floor div: 3
+mod: 1
+power: 1024
+neg floor div: -4
+neg mod: 2
+mod neg divisor: -2
+precedence: 14
+parens: 20
+power is right assoc: 512
+unary minus vs power: -4
+parenthesised base: 4
+neg exponent: 0.5
+mixed int/float: 3.0
+float mul: 6.0
+float floor div: 3.0
+float mod: 1.5
+unary: 3 5 4
+int float equal: True
+divmod: (3, 2)
+big: 1219326311370217952237463801111263526900
+long expr: 2.0
+string mul: ababab ababab
+list add: [1, 2, 3]
+polynomial: 9
+avg: 4.0
+percent: 75.0
+result types: int float int float
+multi-line expr: 6
+backslash continuation: 3
+0.1 * 3: 0.30000000000000004
+bool arithmetic: 2 0
+mod sign follows divisor: 4 -4 -1
+floor div floats neg: -4.0 -4.0
+square root via power: 3.0 4.0
+shifts and bits: 16 64 2 7 5
+precedence unary/mul: -6 -6 12
+comparison after arithmetic: True True

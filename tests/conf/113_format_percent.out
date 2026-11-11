@@ -1,0 +1,40 @@
+format() numbers: 3.14    42| 42   | 00042
+format() bases: 11111111 ff FF 377 255
+format() thousands/sign: 1,234,567 1,234,567.89 +5 -5
+format() exponent/percent: 1.234568e+04 1.235e+04 25.600000% 25.6%
+format() strings:     hi| hi    |   hi  | **hi**
+format() no spec: 42 3.5 s True None [1, 2]
+format() big int: 1,180,591,620,717,411,303,424 1.000000e+15
+positional: a b c
+indexed: x y x z
+keyword: Ada is 36
+mixed: first and end
+specs: [       r] [l       ] [   c    ] [***f****]
+numbers: [   42] [00042] [+42] [1,234,567] [3.14] [   3.142]
+more numbers: [1.234500e+03] [1.23e+03] [50.000000%] [50.0%]
+bases: 1010 ff FF 10 7
+indexed with spec: 2.7 2.718    ab ab   |
+keyword with spec:     9.50|007|  tea  |
+conversion: 's'    't'
+nested width: [ab   ] [    3.14]
+braces: {} {x}
+tea   |   2|   3.50
+cake  |  10|  12.25
+dict unpack: Lima 18
+reuse: a-a-b None 12.0
+container values: [1, 'a'] (2,)
+%s and %d: Ada is 36 years
+single value: x 3 items 3.5 [1, 2] None
+float: 3.141590 3.14 3 0.667
+width: [   42] [  -42] [12345] [  3.1]
+hex: ff 1000
+repr vs str: "a'b" a'b 1.0 [None] 'plain'
+percent sign: 100% done, 0% left
+tuple value needs wrapping: (1, 2)
+%s with any type: 1 2.5 True {'k': 1}
+apple:     3 0.50
+kiwi:    12 0.25
+percent of total: 75.0%
+three styles agree: True
+built in a loop: 0=a, 1=b, 2=c
+extras: [42   ] [00042] [ab    ] [    ab] FF 10 +5

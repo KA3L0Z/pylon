@@ -1,0 +1,28 @@
+total words: 37 | unique: 21
+lines: 3 | characters: 187
+rank word      count   share  bar
+---------------------------------
+1    the           8   21.6%  ########
+2    fox           4   10.8%  ####
+3    brown         3    8.1%  ###
+4    dog           3    8.1%  ###
+5    quick         3    8.1%  ###
+6    a             1    2.7%  #
+7    and           1    2.7%  #
+8    away          1    2.7%  #
+---------------------------------
+most common, ties by first appearance: [('the', 8), ('fox', 4), ('quick', 3)]
+words used once: ['a', 'and', 'away', 'barks', 'dogs', 'forest', 'foxes', 'in', 'jumps', 'lazy', 'no', 'oldest', 'over', 'rivalry', 'runs', 'says']
+ 1 letters: a
+ 2 letters: in, no
+ 3 letters: and, dog, fox, the
+ 4 letters: away, dogs, lazy, over, runs, says
+ 5 letters: barks, brown, foxes, jumps, quick
+ 6 letters: forest, oldest
+ 7 letters: rivalry
+longest word: rivalry | average length: 3.81
+top first letters: [('t', 8), ('f', 6), ('b', 4), ('d', 4)]
+without stop words: [('fox', 4), ('quick', 3), ('brown', 3), ('dog', 3)]
+sentences: 5 | words in each: [9, 7, 4, 6, 12]
+capitalized start: The Quick Brown Fox Jumps Over
+manual count matches Counter: True

@@ -1,0 +1,27 @@
+original: [[1, 2, 99], [3, 4], {'k': [5, 6]}, 'new']
+shallow shares inner objects: [[1, 2, 99], [3, 4], {'k': [5, 6]}]
+deep is independent: [[1, 2], [3, 4], {'k': [5]}]
+identity: False True False False
+deepcopy dict: {'a': [1], 'b': {'c': 2}} {'a': [1, 2], 'b': {'c': 3}}
+deepcopy tuple with list: (1, [2, 3]) (1, [2, 3, 4])
+copy object: Node(10, [Node(20, []), Node(3, [])]) | Node(1, [Node(20, []), Node(3, [])]) | Node(1, [Node(2, []), Node(3, [])])
+copy of immutables: 5 s (1, 2)
+snapshot of grid: [[7, 0], [0, 0]] [[0, 0], [0, 0]]
+ascii_lowercase: abcdefghijklmnopqrstuvwxyz
+ascii_uppercase: ABCDEFGHIJKLMNOPQRSTUVWXYZ
+ascii_letters: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 52
+digits: 0123456789
+punctuation: !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~ 32
+membership: True False True True
+alphabet position: 5 Z
+strip punctuation: Hello World ok
+is pangram: True
+caesar: abc
+itemgetter sort: [('bob', 25, 'nyc'), ('cy', 25, 'oslo'), ('ann', 30, 'lima')] ('ann', 30, 'lima')
+itemgetter call: nyc 20 v
+itemgetter max/min: ('ann', 30, 'lima') ('ann', 30, 'lima')
+itemgetter map: ['bob', 'ann', 'cy']
+itemgetter on dicts: ['y', 'x']
+sys.maxsize: 9223372036854775807 True 9223372036854775808
+maxsize as initial minimum: 7 True
+itemgetter multiple: (25, 'bob') [('bob', 25, 'nyc'), ('cy', 25, 'oslo'), ('ann', 30, 'lima')]

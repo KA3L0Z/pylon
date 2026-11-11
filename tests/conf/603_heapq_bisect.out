@@ -1,0 +1,23 @@
+smallest first: 1 5
+pops in order: [1, 2, 3, 5, 8] []
+heapify: 1 [1, 2, 4, 7, 8, 9] 6
+heappushpop: 1 2
+heappushpop below the minimum: 0 2
+heapreplace: 2 3
+drain: [3, 4, 7, 8, 9, 10]
+nlargest/nsmallest: [9, 8, 5] [1, 2]
+n beyond the size: [2, 1] []
+with key: ['banana', 'apple'] ['fig', 'kiwi']
+tuples by priority then name: [(1, 'align'), (1, 'plan'), (2, 'write'), (3, 'test')]
+max-heap by negation: 8 5
+heapsort: [1, 1, 2, 3, 4, 5, 6, 9]
+heappop from empty raises IndexError
+3 largest via bounded heap: [5, 8, 9]
+bisect_left: 1 3 0 5
+bisect_right: 3 3 0 5
+insort keeps order: [0, 1, 3, 3, 3, 4, 5, 8, 10]
+binary search: True False False
+count of 3: 3
+values below 5: 6 | at most 5: 7
+grade lookup: ['F', 'D', 'C', 'A', 'A']
+strings: 2

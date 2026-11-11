@@ -1,0 +1,38 @@
+str + int: TypeError: can only concatenate str (not "int") to str
+int + str: TypeError: unsupported operand type(s) for +: 'int' and 'str'
+None + int: TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'
+list + int: TypeError: can only concatenate list (not "int") to list
+str - str: TypeError: unsupported operand type(s) for -: 'str' and 'str'
+str * str: TypeError
+for over int: TypeError: 'int' object is not iterable
+list(int): TypeError: 'int' object is not iterable
+sum(int): TypeError: 'int' object is not iterable
+unpack int: TypeError
+None[0]: TypeError: 'NoneType' object is not subscriptable
+None['key']: TypeError: 'NoneType' object is not subscriptable
+index sort() result: TypeError: 'NoneType' object is not subscriptable
+int[0]: TypeError: 'int' object is not subscriptable
+call int: TypeError: 'int' object is not callable
+call str: TypeError: 'str' object is not callable
+call None: TypeError: 'NoneType' object is not callable
+call list: TypeError: 'list' object is not callable
+missing one argument: TypeError: add() missing 1 required positional argument: 'b'
+missing two arguments: TypeError: add() missing 2 required positional arguments: 'a' and 'b'
+too many arguments: TypeError: add() takes 2 positional arguments but 3 were given
+argument to no-arg function: TypeError: no_args() takes 0 positional arguments but 1 was given
+missing with default: TypeError: greet() missing 1 required positional argument: 'name'
+unexpected keyword: TypeError
+argument given twice: TypeError
+list as dict key: TypeError: unhashable type: 'list'
+list in set: TypeError: unhashable type: 'list'
+dict in set: TypeError: unhashable type: 'dict'
+str < int: TypeError: '<' not supported between instances of 'str' and 'int'
+int < str: TypeError: '<' not supported between instances of 'int' and 'str'
+None < int: TypeError: '<' not supported between instances of 'NoneType' and 'int'
+len(int): TypeError
+str index with str: TypeError
+list index with str: TypeError
+assign into str: TypeError
+int(None): TypeError
+abs(str): TypeError
+forgot self: TypeError: Dog.bark() takes 0 positional arguments but 1 was given

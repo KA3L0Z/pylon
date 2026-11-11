@@ -1,0 +1,11 @@
+Savings(Ann: 1000.00) | Checking(Bob: 50.00) | accounts: 2
+interest: 20.0 1020.0
+after transfer: Savings(Ann: 820.00) | Checking(Bob: 250.00)
+overdraft allowed: Checking(Bob: -50.00) 50
+InsufficientFunds: cannot withdraw 100, balance is -50 | short by 150
+InvalidAmount: deposit must be positive, got -5
+InsufficientFunds: cannot withdraw 1000000, balance is -50 | short by 1000050
+history: [('deposit', 20.0), ('withdraw', 200)] [('deposit', 200), ('withdraw', 300)]
+total: 1070.0 | richest: Ann
+types: ['Savings', 'Checking', 'Savings'] [True, False, True]
+sorted: ['Checking(Bob: -50.00)', 'Savings(Cy: 300.00)', 'Savings(Ann: 820.00)']

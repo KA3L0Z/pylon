@@ -1,0 +1,41 @@
+eq/ne: True True True True
+order: True True False True
+chained: True False True
+chained eq: True True True
+chained mixed: True True
+str compare: True True True True
+seq compare: True True True
+and returns operand: 2 0  b
+or returns operand: 1 2 default 0
+not: False True True False True False
+precedence: True True False
+mixed: True True True
+and stops at first falsy:
+  evaluated left
+  result 0
+or stops at first truthy:
+  evaluated left
+  result 7
+and evaluates both when left is truthy:
+  evaluated left
+  evaluated right
+  result 0
+chained comparison evaluates the middle once:
+  evaluated middle
+  result True
+is: True False True True
+is None: True False False
+in list: True False True
+in str: True True False
+in dict keys: True False
+in tuple/range: True True False
+in set: True True
+falsy: False False False False False False
+truthy: True True True True True True
+default idiom: anonymous
+careful with zero: 10 0
+bool is int: True True 2
+compare int/float: True True False
+None equality: True False False
+chained with call: True
+not in / is not bind tighter than not: True True

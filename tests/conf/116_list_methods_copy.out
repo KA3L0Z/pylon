@@ -1,0 +1,26 @@
+append: [3, 1, 2, 4]
+append list nests: [3, 1, 2, 4, [5, 6]]
+extend: [3, 1, 2, 4, 5, 6]
+extend with string: [3, 1, 2, 4, 5, 6, 'a', 'b']
+insert: ['first', 3, 'mid', 1, 2, 4, 5, 6, 'a', 'b', 'before last', 'end']
+remove: ['first', 3, 1, 2, 4, 5, 6, 'a', 'b', 'before last', 'end']
+pop last: end ['first', 3, 1, 2, 4, 5, 6, 'a', 'b', 'before last']
+pop index: first b [3, 1, 2, 4, 5, 6, 'a', 'before last']
+index: 1 6 3
+count: 3 0
+reverse: ['before last', 'a', 6, 5, 4, 2, 1, 3]
+remove first match only: [1, 2, 3, 2]
+methods return None: None None None None
+after clear: [] 0
+stack pops: 3 2 [1]
+alias sees change: [1, 2, 3, 4] True
+copy is independent: [1, 2, 3, 4] [1, 2, 3, 4, 5]
+other copies: True True False
+shared rows: [[1, 0, 0], [1, 0, 0]]
+independent rows: [[1, 0, 0], [0, 0, 0]]
+shallow copy shares inner lists: [[1, 2, 99], [3]] [[1, 2, 99], [3], [4]]
+mutation visible, rebinding not: ['orig', 'added']
+a = a + [3] makes a new list: [1, 2, 3] [1, 2]
+a += [3] mutates: [1, 2, 3] [1, 2, 3]
+index guard: 2 -1
+equal lists are different objects: True False

@@ -1,0 +1,14 @@
+'abcabcbb' -> (3, 'abc')
+'bbbbb' -> (1, 'b')
+'pwwkew' -> (3, 'wke')
+'' -> (0, '')
+'abcdef' -> (6, 'abcdef')
+'dvdf' -> (3, 'vdf')
+'abba' -> (2, 'ab')
+'tmmzuxt' -> (5, 'mzuxt')
+set version agrees: True
+max sum of 3 consecutive: 36 6
+shortest subarray with sum >= 7: 2 0
+longest with at most 2 distinct: 3 5
+anagram start indices: [0, 6] [0, 1, 2]
+moving average: [5.0, 4.67, 5.67]

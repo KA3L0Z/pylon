@@ -1,0 +1,20 @@
+Hello, Ada!
+default used: 11
+default overridden: 3
+keyword call: 6
+implicit None: None
+bare return: None reached the end
+multiple return: 4 10 2.5
+as tuple: (2, 9, 4.5) tuple
+name: stats
+mutable default 1: [1]
+mutable default 2: [1, 2]
+fresh list passed: [3]
+None default: [1] [2]
+returned: 6
+list mutated, int unchanged: [1, 99] 5
+nested def: 42
+one-line def: True False
+default evaluated at def time: 10
+function is truthy and callable: True True
+docstring: Return (count, total, mean) of a list.

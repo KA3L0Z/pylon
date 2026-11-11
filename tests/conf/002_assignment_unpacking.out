@@ -1,0 +1,27 @@
+chained: 5 5 5
+chained shares one object: [1] [1] True
+tuple unpack: 1 2
+swap: 2 1
+list target: 10 20
+string unpack: h i
+dict unpack gives keys: x y
+first/rest: 1 [2, 3, 4]
+init/last: [1, 2, 3] 4
+head/mid/tail: a ['b', 'c', 'd'] e
+star can be empty: 9 []
+from range: 0 1 [2, 3, 4]
+star between two: 1 [] 2
+nested: 1 2 3
+nested 2: home 4.5 -74.1
+loop nested: 0 1 2
+loop nested: 1 3 4
+items: a 1
+items: b 2
+loop star: 1 [2, 3]
+loop star: 4 [5]
+packing: (1, 2, 3) tuple
+single element: 7
+fib step: 8 13
+swap items: [2, 1, 3]
+subscript targets: {'x': 1, 'y': 2}
+chained ints are independent: 1 0 0

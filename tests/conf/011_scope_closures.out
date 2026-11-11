@@ -1,0 +1,12 @@
+global counter: 2
+shadowing: local x | global x
+counter 1: 1 2 3
+counter 2 is independent: 1
+closures: 10 15
+mutating a captured list needs no nonlocal: ['a', 'b']
+late binding: [2, 2, 2]
+default captures the value: [0, 1, 2]
+shared closure state: 120
+global created in a function: made inside a function
+comprehension scope: [0, 1, 4, 9] untouched
+late global lookup: resolved at call time

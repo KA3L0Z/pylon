@@ -1,0 +1,41 @@
+hello
+
+a b c
+abc
+a-b-c
+a, b, c
+no newline <- same line
+custom end!
+one | two END
+1 2.5 True None
+int: 42
+negative: -7
+float: 3.0
+bools: True False
+none: None
+str: plain text
+list of str: ['a', 'b']
+mixed list: [1, 'two', 3.0, None, True]
+tuples: (1, 2) (1,) ()
+dict: {'k': 1, 'n': [1, 2]}
+nested: [[1, 2], (3, 'x')] {'t': (1, 'a')}
+empties: [] {} ()
+1 2 3
+1, 2, 3
+values: 1 2 3 done
+a/b/c
+after empty unpack
+multi
+line
+tab	separated
+
+ab ccc
+expr: 5 2.5 3
+0 1 2 |
+xyz
+first, second, third
+sep only matters between args
+1
+2
+3
+end

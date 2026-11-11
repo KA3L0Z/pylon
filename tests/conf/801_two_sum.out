@@ -1,0 +1,11 @@
+two_sum [2, 7, 11, 15] 9 -> [0, 1]
+two_sum [3, 2, 4] 6 -> [1, 2]
+two_sum [3, 3] 6 -> [0, 1]
+two_sum [1, 2, 3] 7 -> None
+two_sum [-1, -2, -3, -4, -5] -8 -> [2, 4]
+two_sum [0, 4, 3, 0] 0 -> [0, 3]
+brute force agrees: True
+all unique pairs: [(-1, 7), (1, 5), (3, 3)]
+two pointers on sorted input: [2, 4] None
+three sum: [[-1, -1, 2], [-1, 0, 1]]
+three sum, no answer: [] [[0, 0, 0]]

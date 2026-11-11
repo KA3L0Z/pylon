@@ -1,0 +1,42 @@
+simple: 1.0 2.5 -0.5 100.0 3.14
+int-valued floats keep .0: 2.0 6.0 1000.0 7.0
+0.1 + 0.2: 0.30000000000000004
+0.1 + 0.2 == 0.3: False True
+classic sums: 0.7999999999999999 0.30000000000000004 3.3000000000000003 0.75
+division: 0.3333333333333333 0.6666666666666666 2.5 0.125
+large: 1000000000000000.0 1e+16 1.2345678901234568e+17 1.5e+300
+large int-valued: 100000.0 10000000000.0 9999999999999998.0 1e+22
+small: 0.001 0.0001 1e-05 1.5e-07 1e-10
+threshold: 0.00012 1.2e-05 1.23456789e-05
+sci literals: 2000.0 0.0025 100.0 6.02e+23
+many digits: 3.141592653589793 2.718281828459045 1.2345678901234567
+computed large/small: 1e+16 1000000000000000.0 1e-05 0.0001
+inf: inf -inf -inf
+nan: nan
+inf compare: True True True
+inf arithmetic: inf inf -inf 0.0
+nan compare: False True False False
+inf - inf: nan
+overflow to inf: inf -inf
+float from str: 3.5 -2.0 1000.0 4.25 0.5
+float from int/bool: 3.0 1.0
+str of float: 2.5 1e+16 0.1
+int of float: 2 -2
+is_integer: True False True
+is_integer on variable: True False
+floor div: 3.0 -4.0 3.0 3.0
+modulo: 1.5 0.5 -0.5 0.25
+divmod: (3.0, 1.5) (-4.0, 0.5)
+power: 8.0 2.0 0.5 2.25
+mixed arithmetic: 2.0 1.5 6.5
+comparison: True True True True
+abs/neg: 2.5 1.5 2.5
+min/max/sum: 0.5 2 1.0
+ten tenths added in a loop: 0.9999999999999999 False
+average: 2.3333333333333335
+percent: 33.33333333333333
+money: 59.97 7.000000000000001 114.99999999999999
+type: float float True
+truthiness: False True
+equality after ops: True False
+in containers: [0.1, 1.0, 1e+20] (2.5, -1e-07) {'pi': 3.14}

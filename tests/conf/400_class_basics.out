@@ -1,0 +1,22 @@
+attributes: Rex 3 1
+method: Rex says woof
+str: Rex (3) Fido (1)
+repr: Dog('Rex', 3) [Dog('Rex', 3), Dog('Fido', 1)]
+f-string uses str: Rex (3) and Dog('Fido', 1)
+mutated: 5
+chained methods: ['sit', 'roll'] []
+class attribute: canine canine 2
+instance shadows class attr: robot canine canine
+class attr changed: dog robot
+new attribute on the fly: T-Rex False
+type/isinstance: Dog True False
+call via class: Fido says woof
+bound method value: Rex says woof
+default equality is identity: True False True
+alias: Max
+empty class as record: 1 2
+mutable class attr is shared: ['shared'] []
+truthy by default: True True
+sort objects by attribute: [Dog('c', 1), Dog('b', 2), Dog('a', 5)]
+oldest: a | dogs created: 6
+class name: Dog Empty

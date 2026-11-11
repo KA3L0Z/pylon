@@ -1,0 +1,21 @@
+next: 10 20 30
+next default: empty
+StopIteration when exhausted
+iter of str/tuple/dict/range: a 7 k 5
+iterator is its own iterator: True
+rest after next: 10 [20, 30] []
+partial consumption: ['a', 'b'] cdef
+resume after break: z
+zip of one iterator pairs items: [(1, 2), (3, 4), (5, 6)]
+custom iterator: 3 [2, 1] []
+in for/sum/max: [4, 3, 2, 1] 10 4
+next default on custom: done
+iterable with separate iterator: ['A', 'K', 'Q'] ['A', 'K', 'Q']
+nested loops over the same iterable: ['AK', 'AQ', 'KQ']
+builtins accept it: ['A', 'K', 'Q'] A,K,Q True {0: 'A', 1: 'K', 2: 'Q'}
+unpacking: A K Q
+zip/enumerate with custom: [(5, 'a'), (4, 'b')] [(1, 2), (2, 1)]
+map/filter are iterators: 10 20
+map is single-use: [20, 40, 60] []
+reversed is an iterator: 30 [20, 10]
+enumerate is an iterator: (0, 'a') (1, 'b') None

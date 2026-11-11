@@ -1,0 +1,46 @@
+insertion order: {'banana': 3, 'apple': 1, 'cherry': 2}
+update keeps position: {'banana': 3, 'apple': 10, 'cherry': 2}
+re-insert goes last: {'apple': 10, 'cherry': 2, 'banana': 5}
+keys: ['apple', 'cherry', 'banana'] ['apple', 'cherry', 'banana']
+values: [10, 2, 5]
+items: [('apple', 10), ('cherry', 2), ('banana', 5)]
+view reprs: dict_keys(['apple', 'cherry', 'banana']) dict_values([10, 2, 5]) dict_items([('apple', 10), ('cherry', 2), ('banana', 5)])
+views are live: ['apple', 'cherry', 'banana', 'date'] [10, 2, 5, 7] 4
+membership: True True True
+key loop: apple 10
+key loop: cherry 2
+key loop: banana 5
+key loop: date 7
+items loop: apple 10
+items loop: cherry 2
+items loop: banana 5
+items loop: date 7
+enumerated: 1 apple 10
+enumerated: 2 cherry 2
+enumerated: 3 banana 5
+enumerated: 4 date 7
+sorted keys: ['apple', 'banana', 'cherry', 'date']
+sorted by value: [('cherry', 2), ('banana', 5), ('date', 7), ('apple', 10)]
+keys by value desc: ['apple', 'date', 'banana', 'cherry']
+first/last key: apple date
+sum values: 24 max value: 10
+filter: {'apple': 10, 'banana': 5, 'date': 7}
+transform: {'APPLE': 20, 'CHERRY': 4, 'BANANA': 10, 'DATE': 14}
+invert: {10: 'apple', 2: 'cherry', 5: 'banana', 7: 'date'}
+zip keys/values: True
+delete while iterating a copy: {'cherry': 2, 'banana': 5}
+update values while iterating: {'cherry': 3, 'banana': 6}
+first-seen order: {'h': 0, 'e': 1, 'l': 2, 'o': 3, ' ': 4, 'w': 5, 'r': 6, 'd': 7}
+dedupe keeping order: [3, 1, 2]
+equal despite order: True False
+popitem is LIFO: ('y', 2) {'x': 1}
+int keys keep insertion order: [0, 1, 2, 3] 49
+reversed copy: [7, 6, 5]
+items round trip: True
+tuple keys: {(0, 0): 0, (0, 1): 0, (1, 0): 0, (1, 1): 1}
+graph: a -> b, c
+graph: b -> c
+graph: c -> (none)
+len of views: 2 2 2
+values can repeat: 2
+common keys via view: []

@@ -1,0 +1,10 @@
+plain: HELLO ADA!
+without wraps the wrapper name shows: wrapper
+applied by hand: REALLY?!
+  calling add with (1,) {'b': 2}
+  returned 3
+logged: 3
+wraps keeps name and doc: add | Add two numbers.
+with argument: ['hey', 'hey', 'hey'] ping
+stacked, bottom one applied first: <b><i>x</i></b>
+memoized fib: 832040 wrapper calls: 59

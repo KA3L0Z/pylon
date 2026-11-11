@@ -1,0 +1,36 @@
+1/0: ZeroDivisionError: division by zero
+1//0: ZeroDivisionError
+1%0: ZeroDivisionError
+1.0/0: ZeroDivisionError
+list index: IndexError: list index out of range
+negative list index: IndexError: list index out of range
+index into empty list: IndexError: list index out of range
+pop from empty list: IndexError: pop from empty list
+string index: IndexError: string index out of range
+tuple index: IndexError
+list assignment index: IndexError
+missing str key: KeyError: 'b'
+missing int key: KeyError: 2
+missing tuple key: KeyError: (1, 2)
+dict.pop missing: KeyError: 'gone'
+set.remove missing: KeyError
+int('abc'): ValueError: invalid literal for int() with base 10: 'abc'
+int('3.5'): ValueError: invalid literal for int() with base 10: '3.5'
+int(''): ValueError: invalid literal for int() with base 10: ''
+float('x'): ValueError
+list.remove: ValueError: list.remove(x): x not in list
+list.index: ValueError
+str.index: ValueError
+too many values: ValueError: too many values to unpack (expected 2)
+not enough values: ValueError: not enough values to unpack (expected 3, got 2)
+list.push: AttributeError: 'list' object has no attribute 'push'
+str.append: AttributeError: 'str' object has no attribute 'append'
+dict.add: AttributeError: 'dict' object has no attribute 'add'
+None attribute: AttributeError: 'NoneType' object has no attribute 'upper'
+method on sort() result: AttributeError: 'NoneType' object has no attribute 'append'
+undefined name: NameError: name 'undefined_name' is not defined
+typo in name: NameError: name 'coutn' is not defined
+next on exhausted iterator: StopIteration
+assert with message: AssertionError: age must not be negative
+custom exception: InsufficientFunds: balance is 10, need 25
+KeyError str is the repr of the key: 'b' | key itself: b

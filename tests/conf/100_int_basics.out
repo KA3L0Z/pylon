@@ -1,0 +1,43 @@
+2**100: 1267650600228229401496703205376
+2**64: 18446744073709551616
+factorial(30): 265252859812191058636308480000000
+big product: 9999999999800000000001
+big sum: 1180591620717411303425
+big negative: -10000000000000000000000000
+big floor div: 142857142857142857142857142857
+big mod: 1
+big compare: True True
+big digit count: 61
+64-bit boundary: 9223372036854775807 9223372036854775808 -9223372036854775809
+exact big division: 10000000000 1
+sum of big: 200000000000000000001
+augmented big: 1000000000000000001
+big subtraction: 633825300114114700748351602688 99999999999999999999
+big negative floor div: -33333333333333333334 2
+big square: 152415787532388367501905199875019052100
+underscores: 1000000 10 12345.5
+floor div: 3 -4 -4 3
+modulo: 1 2 -2 -1
+divmod: (3, 1) (-4, 1) (-4, -1)
+true division gives float: 3.0 3.5 -0.25
+power: 81 1 -27 1000
+negative power gives float: 0.25 0.1
+pow 3 args: 24 9
+abs: 5 5 1180591620717411303424
+int from str: 42 -17 8 5
+int from float truncates: 3 -3 2
+int from bool: 1 0
+int with base: 255 5 511
+int default: 0
+str of int: 1234 -5
+float of int: 3.0
+even/odd: True True
+digit sum: 76
+last digit: 5 without last: 1234
+reverse digits: 54321
+int equals float: True True
+comparison: True True True
+types: int int int
+isinstance: True False True
+big int to float: 1e+20 100.0
+big equals float: True

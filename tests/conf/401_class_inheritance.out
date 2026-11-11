@@ -1,0 +1,14 @@
+speak: generic says ...
+speak: Rex says woof
+speak: Bit says woof (squeaky)
+speak: Tom says meow
+repr: [Animal('generic'), Dog('Rex'), Puppy('Bit'), Cat('Tom')]
+inherited method: Bit fetches 8
+isinstance: True True True False
+isinstance tuple: True False
+issubclass: True False True
+type is exact: True False True
+hasattr: False True
+abstract base: Rect with area 6 | Square with area 16
+polymorphism: 11 True
+multiple inheritance: walk 2 2 True

@@ -1,0 +1,27 @@
+list: [1, 2, 3, 4, 5]
+for loop: 1
+for loop: 2
+for loop: 3
+next: 1 2
+exhausted: StopIteration
+next default: done None
+generators are single-use: [] 10
+created, nothing ran yet
+  started
+first: 1
+  resumed
+second: 2
+  finishing
+third: no more
+return value: result
+return ends iteration: ['a']
+yield in loops: [0, 2, 4, 6, 8] [1, 2]
+infinite with break: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+unpack from generator: 1 2 3 4 (1, 2)
+enumerate/zip: [(0, 1), (1, 2)] [(1, 'a'), (2, 'b')]
+genexp: 0 1 [4, 9, 16] []
+genexp as argument: 10 0,1,2
+genexp is lazy until consumed
+  evaluated 0
+  evaluated 1
+consumed: [0, 1]

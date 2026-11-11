@@ -1,0 +1,30 @@
+no args: 0
+some args: 6
+args tuple: () tuple
+args tuple: (1, 'two', [3]) tuple
+  kwarg a = 1
+  kwarg b = x
+count: 2
+empty kwargs: 0
+mixed: 1 2 () False {}
+mixed: 1 20 () False {}
+mixed: 1 20 (30, 40) False {}
+mixed: 1 2 () True {}
+mixed: 1 2 (3,) True {'color': 'red', 'size': 9}
+mixed: 4 5 () False {}
+kw-only defaults: x-y
+kw-only given: X+Y
+required kw-only: 10
+star list: (1, 2, 0)
+star tuple: (4, 5, 6)
+star string: (a, b, 0)
+double star: (7, 8, 9)
+star and double star: (1, 2, 0)
+positional then keyword: (1, 2, 3)
+several stars: 15
+forwarding: (1, 2, 0) (1, 5, 6)
+skip middle default: (1, 2, 0) (1, 2, 30)
+max with star: 9
+print with star: 0 1 2
+list display unpack: [0, 1, 2, 3]
+dict display unpack: {'a': 1, 'b': 20, 'c': 30}

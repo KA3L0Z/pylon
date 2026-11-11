@@ -1,0 +1,17 @@
+str/repr: v1.2 v1.10 Version(1, 2) [Version(1, 2), Version(1, 10)]
+format uses str: v1.2 v1.10 v1.2 Version(1, 2)
+eq: True False False False False
+ne: True False
+order: True True False True False
+sorted: [Version(0, 9), Version(1, 2), Version(1, 10), Version(2, 0)] min/max: v0.9 v2.0
+sorted reverse: ['v2.0', 'v1.10', 'v1.2', 'v0.9']
+list search uses eq: True False 1 1
+dict key with custom hash: stable True 2
+equal key replaces: 2 replaced
+set dedupes equal objects: 2 [Version(1, 2), Version(1, 10)]
+default eq is identity: False True True
+default hash is identity: 2 first second False
+set of distinct objects: 2
+list search by identity: False True
+str falls back to repr: <only repr> <only repr> [<only repr>]
+str defined: only str only str

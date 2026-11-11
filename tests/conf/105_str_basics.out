@@ -1,0 +1,41 @@
+len: 12 0
+index: H W d W
+slice: Hello World Hello Hello, World
+neg slice: World Hello Wor
+step: Hlo ol el,Wrd Hl r
+reverse: dlroW ,olleH ,olleH dlroW
+out of range slice: , World '' Hel ''
+negative step bounds: edc fed cba
+concat: abcd xy
+repeat: ababab --- True True
+in: True False True True
+not in: True
+compare: True False True True True
+equality: True False True
+ord: 97 65 48 32 25
+chr: a A 0 b
+caesar shift: abc
+iterate: ['a', 'b', 'c']
+list/tuple of str: ['a', 'b', 'c'] ('a', 'b')
+sorted chars: ['a', 'a', 'a', 'b', 'n', 'n'] aaabnn
+min/max char: e o
+enumerate: [(0, 'a'), (1, 'b')]
+str(): 123.5TrueNone[1, 'a']
+multiply build: ----------
+adjacent literals: abcdef
+quote styles are equal: True
+empty is falsy: False True
+first/last: H d True
+middle char: c
+palindrome: True False
+char to int: 8 71 77
+slicing copies: True True
+stepped middle: bdf
++= rebinds, original unchanged: Hello, World | Hello, World!
+item assignment raises TypeError
+index past the end raises IndexError
+build with loop: cba
+vowels: 3
+scan to comma: 5 Hello
+compare as text: True True True
+string in list: True False

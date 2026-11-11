@@ -1,0 +1,25 @@
+lru_cache fib: 832040 | computed once each: 31
+cached calls do not rerun: 31
+cache: 12870 6
+  computing 4
+  computing 5
+bare lru_cache: 16 16 25
+  miss 1
+  miss 2
+  miss 3
+  miss 2
+maxsize=2 evicted the least recently used entry
+wrapped names: fib grid_paths
+reduce: 10 120
+reduce initial: 0 13 9 7
+reduce to build: cba [2, 4]
+reduce of empty without initial raises TypeError
+partial: 49 1024 250 10
+LOG: | a | b
+partial with sorted: [3, 2, 1]
+cmp_to_key: ['fig', 'date', 'kiwi', 'pear', 'apple']
+cmp descending: [3, 2, 1]
+largest concatenation: 9534330
+max with cmp: apple
+wraps: 6 three three doc
+module prefix: 5

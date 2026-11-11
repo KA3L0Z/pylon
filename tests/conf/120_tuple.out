@@ -1,0 +1,38 @@
+tuple: (1, 2, 3) 3 tuple
+empty/single: () (1,) 0 1
+parentheses alone are not a tuple: int tuple
+packing: (4, 5)
+index/slice: 1 3 (2, 3) (3, 2, 1)
+concat/repeat: (1, 2, 3, 4) (1, 2, 3, 1, 2, 3) (0, 0, 0)
+in: True False
+count/index: 3 2
+compare: True True True True
+mixed: (1, 'a', 2.5, None, [1], (2,))
+from other: (1, 2) ('a', 'b', 'c') (0, 1, 2) ('k',)
+to list and back: [1, 2, 3] True
+min/max/sum/sorted: 1 3 6 [1, 2, 3]
+iterate: [2, 4, 6]
+unpack: 1 2 3
+star unpack: 1 [2, 3]
+item assignment raises TypeError
+no append: AttributeError
++= makes a new tuple: (1, 2, 3) (1, 2, 3, 4)
+mutable element can change: ([1, 2, 3], 'x')
+tuple keys: origin p True
+tuples in a set: [(1, 2), (2, 1)]
+multiple return: 1 9 (2, 2)
+pair: 1 one
+pair: 2 two
+zip gives tuples: [('a', 1), ('b', 2)]
+enumerate gives tuples: [(0, 'a'), (1, 'b')]
+dict items are tuples: [('a', 1)]
+swap: (2, 1)
+nested: 3 [1, 2, 3, 4]
+sorted tuples: [(1, 'a'), (1, 'b'), (2, 'a')]
+tuple is never equal to a list: False True
+truthiness: False True
+slice is a tuple: tuple (1, 2)
+1-tuples inside a list: [(1,), ('a',)]
+hex color: #ff8000
+max of tuples: (3, 'c')
+ignore a field: ['one', 'two']

@@ -1,0 +1,38 @@
+and: 8
+or: 14
+xor: 6
+not: -13 -1 0
+left shift: 1024 12
+right shift: 128 3 -4
+big shift: 1267650600228229401496703205376
+bin: 0b1010 0b0 0b11111111 -0b101
+hex: 0xff 0x0 0x1000 -0xff
+oct: 0o10 0o100 0o0
+int from bin str: 10 10
+int from hex str: 255 255 255
+int from oct str: 15
+literals: 10 255 15 255
+strip prefix: 1010 ff
+padded binary: 00000101
+format bin/hex/oct: 1010 ff FF 10
+format padded: 00000101 00ff
+count ones: 8 10
+powers of two: [1, 2, 4, 8, 16]
+test bits of 5: 1 0 1
+set bit: 7
+clear bit: 5
+toggle bit: 4
+low bits mask: 6
+parity: [0, 1, 0, 1, 0]
+single number via xor: 4
+flags: 9 0b1001
+flag cleared: 8
+shift as multiply/divide: 10 2 5
+precedence: 8 5 True True
+bool bits: False True False
+negative and mask: 255 14
+xor swap: 9 5
+manual to binary: 100101 0 True
+chr/ord with hex: 0x41 A
+round trip: 1234 1234 1234
+subsets by bitmask: [[], ['a'], ['b'], ['a', 'b'], ['c'], ['a', 'c'], ['b', 'c'], ['a', 'b', 'c']]

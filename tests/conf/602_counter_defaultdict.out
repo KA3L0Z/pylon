@@ -1,0 +1,32 @@
+counter: Counter({'i': 4, 's': 4, 'p': 2, 'm': 1})
+counts: 4 1 0 False 4
+most_common: [('i', 4), ('s', 4)] ('i', 4) [('i', 4), ('s', 4), ('p', 2), ('m', 1)]
+from list: Counter({3: 3, 2: 2, 1: 1}) Counter({'a': 2, 'b': 1})
+from dict/kwargs: Counter({'x': 2, 'y': 1}) Counter({'a': 3, 'b': 1})
+empty: Counter() 0 0
+change counts: 6 1 17
+update(): 6 5
+after del: False [('i', 5), ('m', 6), ('p', 2), ('s', 6)]
+word counts: [('the', 3), ('and', 2), ('cat', 1)] 3 0
+keys/values: ['the', 'cat', 'and', 'hat', 'bat'] [3, 1, 2, 1, 1] {'the': 3, 'cat': 1, 'and': 2, 'hat': 1, 'bat': 1}
+total/unique: 8 5 3
+add: [('a', 3), ('b', 5), ('c', 1), ('d', 1)]
+subtract: [('a', 1), ('b', 1), ('c', 1)] [('d', 1)]
+intersection: [('a', 1), ('b', 2)] union: [('a', 2), ('b', 3), ('c', 1), ('d', 1)]
+equality: True False
+anagram check: True
+counter is a dict: True 2 0
+repeated elements: ['a', 'b']
+counter of counts: Counter({2: 2, 3: 1})
+missing key is 0 and not added: 0 False
+defaultdict(int): defaultdict(<class 'int'>, {'b': 1, 'a': 3, 'n': 2}) {'b': 1, 'a': 3, 'n': 2}
+defaultdict(list): {'a': ['apple', 'avocado'], 'b': ['banana', 'blueberry'], 'c': ['cherry']}
+repr: ['cherry'] defaultdict(<class 'list'>, {}) defaultdict(<class 'int'>, {'k': 1})
+defaultdict(set): {'x': [1, 3], 'y': [2]}
+access creates the key: 0 True 4
+get/in do not create: None False 4
+lambda factory: found N/A ['a', 'b']
+nested: {'x': {'y': 2, 'z': 1}}
+adjacency list: {1: [2, 3], 2: [1, 3], 3: [1, 2]} True
+other factories: 0.0 '' {}
+from existing dict: 5 0

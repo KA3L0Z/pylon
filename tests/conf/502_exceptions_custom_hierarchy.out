@@ -1,0 +1,22 @@
+custom: plain custom error ('plain custom error',) AppError
+subclass caught by base: age: must be positive | age must be positive ('age: must be positive',)
+custom __str__: not found -> user 7 ('user 7',)
+custom hierarchy: True True True False
+args: ('bad', 42) ('bad', 42) one ''
+repr: ValueError('x') KeyError('k') AppError('a', 1)
+issubclass: KeyError LookupError True
+issubclass: IndexError LookupError True
+issubclass: ZeroDivisionError ArithmeticError True
+issubclass: OverflowError ArithmeticError True
+issubclass: NotImplementedError RuntimeError True
+issubclass: ValueError Exception True
+issubclass: TypeError Exception True
+issubclass: AttributeError Exception True
+issubclass: NameError Exception True
+issubclass: StopIteration Exception True
+issubclass: AssertionError Exception True
+issubclass: KeyError ValueError False
+caught by base class: ['lookup', 'lookup', 'arithmetic', 'arithmetic', 'runtime', 'other', 'runtime']
+raise from: zz: unknown key | cause: KeyError 'zz'
+  logging, then re-raising
+bare raise keeps the exception: ValueError

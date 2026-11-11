@@ -1,0 +1,42 @@
+isdigit: True False False False False
+isalpha: True False False False
+isalnum: True False False False
+isspace: True True False False
+isupper: True False True False
+islower: True False True False
+single chars: True True True True
+has digit: True
+has upper: True
+has symbol: True
+all letters: False
+digits only: 122333
+letters only: hllwrld
+count kinds: 2 3
+valid ints: ['42', '007']
+is_number: [True, True, False, False, True]
+isdigit then int: [1, 'x', 22]
+first non-space: x
+combined tests: True True
+ljust: 'ab   ' 'ab...' 'abcdef'
+rjust: '   ab' '000ab' 'abcdef'
+center even pad: '  ab  ' '**ab**'
+center too short: 'abcdef'
+zfill: 00042 -0042 +007 12345 00
+zfill non-numeric: 0003.5 00abc
+banner: ======= Menu =======
+underline: Title
+-----
+apple          3    0.5|
+kiwi          12   0.25|
+watermelon     1    3.0|
+dotted: ....1
+dotted: ...22
+dotted: ..333
+time: 07:05
+binary byte: 00000101
++---------+
+|    hi   |
++---------+
+ids: ['ID001', 'ID025', 'ID300']
+rjust zero equals zfill: True
+center odd pad: '**ab*' '*abc**' '*a**'

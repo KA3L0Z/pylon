@@ -1,0 +1,22 @@
+1
+2
+Fizz
+4
+Buzz
+Fizz
+7
+8
+Fizz
+Buzz
+11
+Fizz
+13
+14
+FizzBuzz
+function: 1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz
+comprehension: ['Buzz', 11, 'Fizz', 13, 14, 'FizzBuzz']
+custom rules: ['Fizz', 'Buzz', 'Bazz', 'FizzBuzz', 'FizzBazz', 'BuzzBazz', 'FizzBuzzBazz', '11']
+counts up to 100: {'Fizz': 27, 'Buzz': 14, 'FizzBuzz': 6, 'number': 53}
+sum of plain numbers: 2632
+FizzBuzz values: [15, 30, 45, 60]
+first five words: 3=Fizz, 5=Buzz, 6=Fizz, 9=Fizz, 10=Buzz

@@ -1,0 +1,48 @@
+newline: a
+b
+tab: a	b
+backslash: a\b
+quotes: say "hi" it's it's say "hi"
+lengths: 3 4 1 1 0
+raw: a\nb C:\temp\new 2
+raw equals escaped: True True 2
+hex/unicode escapes: A A True
+line one
+line two
+    indented line
+triple lines: ['line one', 'line two', '    indented line']
+triple with quotes: He said "it's fine".
+triple single
+quotes
+no newline after backslash
+leading newline: '\nx'
+continued literal: abcdef
+implicit concatenation across lines
+repr simple: 'abc' '' 'a b'
+repr with single quote: "it's"
+repr with double quote: 'say "hi"'
+repr with both: 'it\'s "x"'
+repr escapes: 'a\nb' 'tab\there' 'back\\slash'
+repr carriage return: 'a\rb'
+repr in containers: ["it's", 'q"q', 'a\nb'] ('x',) {'k': 'v\t'}
+str vs repr: hi 'hi' 'hi'
+repr of repr: "'a'"
+repr numbers: 1 1.5 True None
+repr nested: [1, 'two', (3.0, None)]
+f-string !r: 'text' "it's"
+format %r: 'a' and a
+escaped braces: {} {literal}
+backslash at end: path\ 5
+tab aligned:
+	indented
+		twice
+char codes: 10 9 92 39 34
+escaped quote equals other style: True True
+join with escapes: a\b 1
+triple one-liner: spaces kept
+a
+b
+mixed quotes: mixed "double" and 'single' 27
+repr of mixed: 'mixed "double" and \'single\''
+newline count: 2 2
+unknown escape is kept by raw: \q 2

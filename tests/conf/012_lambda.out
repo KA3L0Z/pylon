@@ -1,0 +1,31 @@
+square: 49
+add: 5
+no args: 42
+default: 11 3
+varargs: 6
+kwargs: ['a', 'b']
+immediately called: 42
+conditional lambda: odd
+sort by len: ['fig', 'Apple', 'banana', 'cherry']
+sort case-insensitive: ['Apple', 'banana', 'cherry', 'fig']
+sort by last char: ['banana', 'Apple', 'fig', 'cherry']
+sort by second: [(3, 'a'), (1, 'b'), (2, 'c')]
+sort by neg first: [(3, 'a'), (2, 'c'), (1, 'b')]
+max by key: banana
+min by key: (3, 'a')
+map: [2, 4, 6]
+map two lists: [11, 22]
+filter: [1, 3, 5, 7]
+op add 9
+op sub 3
+op mul 18
+apply twice: hi!!
+lambda closure: 15
+compose: 10
+tuple result: (2, 1)
+sort by tuple key: ['Amy', 'Bob', 'Zed']
+bool key: [3, 2, -1, -5]
+abs key: [-1, 2, 3, -5]
+lambda in comprehension: [0, 1, 4, 9]
+callable: True False
+lambda name: <lambda>

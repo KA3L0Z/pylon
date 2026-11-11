@@ -1,0 +1,39 @@
+sorted: [1, 2, 5, 5, 6, 9] original: [5, 2, 9, 1, 5, 6]
+sort in place: [1, 2, 5, 5, 6, 9]
+reverse: [9, 6, 5, 5, 2, 1]
+sorted reverse: [3, 2, 1]
+strings: ['Apple', 'apple', 'fig', 'pear']
+case-insensitive: ['Apple', 'apple', 'fig', 'pear']
+by length: ['a', 'bb', 'dd', 'ccc']
+by length desc: ['ccc', 'bb', 'dd', 'a']
+floats/negatives: [-2.5, -1, 0, 2.5, 3]
+by abs: [1, -2, 2, -3]
+tuples: [(1, 'a'), (1, 'z'), (2, 'a'), (2, 'b')]
+by second: [(3, 'a'), (2, 'b'), (1, 'z')]
+chars: ['h', 'n', 'o', 'p', 't', 'y'] ytponh
+sorted of dict gives keys: ['a', 'b']
+dict by value: [('y', 1), ('z', 2), ('x', 3)]
+set/tuple/range: [1, 2, 3] [1, 3] [1, 2, 3]
+empty/single: [] [7]
+lists of lists: [[1, 2], [1, 5], [2, 1]]
+stable by age: [('bob', 25), ('dee', 25), ('ann', 30), ('cy', 30), ('eve', 35)]
+reverse keeps tie order: [('eve', 35), ('ann', 30), ('cy', 30), ('bob', 25), ('dee', 25)]
+age desc then name: [('eve', 35), ('ann', 30), ('cy', 30), ('bob', 25), ('dee', 25)]
+two-pass sort: [('dee', 25), ('bob', 25), ('cy', 30), ('ann', 30), ('eve', 35)]
+by last letter: ['banana', 'apple', 'fig', 'kiwi', 'cherry']
+by (len, alpha): ['fig', 'kiwi', 'apple', 'banana', 'cherry']
+min/max with key: fig banana
+dicts by field: ['c', 'b', 'a']
+named key function: [100, 23, 8, 19]
+numeric strings: ['10', '100', '9'] ['9', '10', '100']
+sort returns None: None
+sorted makes a new list: False True
+reversed vs sorted reverse: [2, 3, 1] [3, 2, 1]
+top 3: [9, 7, 4]
+median: 5
+is sorted: False True
+anagrams: True
+unique sorted: [1, 2, 3]
+sort by key with ties: ['a', 'd', 'bb', 'cc']
+descending strings: ['c', 'b', 'a']
+method as key: ['Apple', 'fig', 'pear']
