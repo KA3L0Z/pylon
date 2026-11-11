@@ -158,28 +158,81 @@ function traceRun(level, code, testIndex) {
   const s = session(), R = MP.R, prelude = new Set(Object.keys(s.G));
   let busy = false, base = 0;
   const isCallable = v => v instanceof MP.PyFunc || v instanceof MP.PyClass || v instanceof MP.PyModule || v instanceof MP.PyBuiltin;
-  const globalsNow = vars => { for (const k in s.G) { if (vars.length >= 16) break; const v = s.G[k]; if (!prelude.has(k) && k.slice(0, 2) !== '__' && !isCallable(v)) vars.push([k, brief(v, 0)]); } return vars; };
+  const globalsNow = raw => { for (const k in s.G) { if (raw.length >= 16) break; const v = s.G[k]; if (!prelude.has(k) && k.slice(0, 2) !== '__' && !isCallable(v)) raw.push([k, v]); } return raw; };
+  // Besides the text of every variable, each step keeps a description the viewer can draw: sequences cell by cell,
+  // dictionaries pair by pair, linked nodes by identity (so two names for the same node are seen to be the same node).
+  const ids = new WeakMap();
+  let nextId = 1;
+  const idOf = o => { let i = ids.get(o); if (!i) { i = nextId++; ids.set(o, i); } return i; };
+  const isNode = v => v instanceof MP.PyObj && v.d.val !== undefined && v.d.next !== undefined && v.d.left === undefined;
+  const cell = v => clip(brief(v, 2), 14);
+  function shape(name, v, nodes) {
+    if (typeof v === 'number') return Number.isInteger(v) ? { n: name, k: 'num', v } : null;
+    if (typeof v === 'string') return v.length && v.length <= 48 ? { n: name, k: 'seq', t: 'str', len: v.length, items: Array.from(v) } : null;
+    if (v === null || typeof v !== 'object') return null;
+    const list = Array.isArray(v), arr = list ? v : v instanceof MP.PyTuple || v instanceof MP.PyDeque ? v.a : null;
+    if (arr) {
+      if (list && arr.length && arr.length <= 12 && Array.isArray(arr[0]) && arr[0].length > 0 && arr[0].length <= 14 && arr.every(r => Array.isArray(r) && r.length === arr[0].length))
+        return { n: name, k: 'grid', id: idOf(v), h: arr.length, w: arr[0].length, rows: arr.map(r => r.map(cell)) };
+      return { n: name, k: 'seq', t: list ? 'list' : v instanceof MP.PyTuple ? 'tuple' : 'deque', id: idOf(v), len: arr.length, items: arr.slice(0, 26).map(cell) };
+    }
+    if (v instanceof MP.PyDict) {
+      const entries = [];
+      for (const e of v.m.values()) { if (entries.length >= 10) break; entries.push([cell(e[0]), cell(e[1])]); }
+      return { n: name, k: 'map', id: idOf(v), len: v.m.size, entries };
+    }
+    if (v instanceof MP.PySet) {
+      const items = [];
+      for (const x of v.m.values()) { if (items.length >= 14) break; items.push(cell(x)); }
+      return { n: name, k: 'set', id: idOf(v), len: v.m.size, items };
+    }
+    if (isNode(v)) {
+      let node = v, n = 0;
+      while (isNode(node) && n++ < 16) {
+        const id = idOf(node);
+        if (nodes[id]) break;
+        nodes[id] = { v: cell(node.d.val), next: isNode(node.d.next) ? idOf(node.d.next) : null };
+        node = node.d.next;
+      }
+      return { n: name, k: 'node', id: idOf(v) };
+    }
+    return null;
+  }
+  // Turns [name, value] pairs into what a step stores: text for the table, shapes for the picture.
+  function describe(raw, vars, viz, nodes) {
+    for (const p of raw) {
+      vars.push([p[0], brief(p[1], 0)]);
+      if (viz.length >= 12) continue;
+      const sh = shape(p[0], p[1], nodes);
+      if (sh) viz.push(sh);
+      else if (p[0] === 'self' && p[1] instanceof MP.PyObj) {              // the fields of the object a method works on
+        for (const k in p[1].d) { const inner = shape('self.' + k, p[1].d[k], nodes); if (inner && inner.k !== 'num' && viz.length < 12) viz.push(inner); }
+      }
+    }
+  }
   const rec = (L, sc, ret) => {
     if (busy || L >= FILE || L <= 0) return;
     if (out.steps.length >= TRACE_MAX) { out.truncated = true; R.trace = null; return; }
     busy = true;
     const steps = R.steps, line = R.line, max = R.max, depth = R.calls.length;
     R.max = steps + 20000;
-    const vars = [];
+    const vars = [], viz = [], nodes = {}, raw = [], stack = [];
     let fn = 'main program', retText = null;
     try {
       if (sc && sc.s && sc.fn) {
         fn = sc.fn.name;
         const names = sc.fn.code.vars || [];
-        for (let i = 0; i < names.length && vars.length < 16; i++) if (sc.s[i] !== undefined) vars.push([names[i], brief(sc.s[i], 0)]);
+        for (let i = 0; i < names.length && raw.length < 16; i++) if (sc.s[i] !== undefined) raw.push([names[i], sc.s[i]]);
       } else if (sc && sc.ns) {
         fn = 'class body';
       } else {
-        globalsNow(vars);
+        globalsNow(raw);
       }
+      describe(raw, vars, viz, nodes);
       if (ret !== undefined) retText = brief(ret, 0);
+      for (let i = 1; i < depth; i += 2) if (!prelude.has(R.calls[i])) stack.push(String(R.calls[i]));       // who called whom, outermost first
     } catch (e) { /* a value that cannot be shown is left out */ }
-    out.steps.push({ line: L, fn, depth: depth / 2, vars, out: base + R.outLen, ret: retText });
+    out.steps.push({ line: L, fn, depth: depth / 2, vars, viz, nodes, stack, out: base + R.outLen, ret: retText });
     R.steps = steps; R.line = line; R.max = max; R.calls.length = depth;
     busy = false;
   };
@@ -191,10 +244,10 @@ function traceRun(level, code, testIndex) {
   if (!t) {
     // Every step shows a line before it runs, so a whole program gets one more picture: how things stand at the end.
     if (!out.truncated) {
-      const vars = [];
+      const vars = [], viz = [], nodes = {};
       R.steps = 0; R.max = 20000;
-      try { globalsNow(vars); } catch (e) { /* show what could be read */ }
-      out.steps.push({ line: 0, fn: 'main program', depth: 0, vars, out: out.output.length, ret: null, end: true });
+      try { describe(globalsNow([]), vars, viz, nodes); } catch (e) { /* show what could be read */ }
+      out.steps.push({ line: 0, fn: 'main program', depth: 0, vars, viz, nodes, stack: [], out: out.output.length, ret: null, end: true });
     }
     out.ok = true;
     return out;

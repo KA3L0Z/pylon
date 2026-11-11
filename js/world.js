@@ -1,7 +1,10 @@
 /* Pylon 3D world (three.js r128). Two scenes share one renderer:
    - the hub: the tower with one platform per level on a rising spiral;
    - the arena: a robot deck (zone 1) or a ring of test crystals (code levels).
-   The game talks to it through window.PylonWorld. */
+   The picture is treated like a film frame. Colours are authored in sRGB and lit in linear light, surfaces reflect a small
+   studio of coloured lamps (an environment map), one key light casts soft shadows, bright things bloom, and the result goes
+   through a filmic tone curve. Real ray tracing is out of reach for a browser game on a phone; these techniques give most
+   of its look at a small part of the cost. The game talks to all of this through window.PylonWorld. */
 (function (root) {
 'use strict';
 const T = root.THREE;
@@ -9,18 +12,34 @@ const W = root.PylonWorld = { ok: !!T };
 if (!T) return;
 
 const RISE = 2, RADIUS = 10, PER_TURN = 8, ZONE_H = RISE * PER_TURN, TAU = Math.PI * 2;
-const calm = root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches;
-let renderer, scene, camera, stage, canvas, glowTex;
+const mq = q => !!(root.matchMedia && root.matchMedia(q).matches);
+const calm = mq('(prefers-reduced-motion: reduce)'), coarse = mq('(pointer: coarse)');
+const FONT = "'Barlow Condensed', 'Arial Narrow', 'Trebuchet MS', sans-serif";
+let renderer, scene, camera, stage, canvas, glowTex, gridTex, sun, rim, hemi, sky, dust, starsB, bloom = null;
 let hub, arena, pip, hubPip, selRing, beacon, beaconGlow, parts;
 let nodes = [], zoneInfo = [], pickables = [], levels = [], zones = [];
-let mode = 'hub', selected = 0, nextNode = -1, epoch = 0, cb = {}, time = 0;
+let mode = 'hub', selected = 0, nextNode = -1, epoch = 0, cb = {}, time = 0, arenaSpan = 9;
 const cam = { az: 0, y: 0, dist: 27 }, camT = { az: 0, y: 0, dist: 27 };
 const acam = { az: Math.PI / 2, el: 0.9, dist: 12 }, acamT = { az: Math.PI / 2, el: 0.9, dist: 12 }, atarget = new T.Vector3();
 let topY = 0, board = null, crystals = [], lock = null, beam = null;
 
 // ---------------------------------------------------------------- small helpers
-const std = (color, o) => new T.MeshStandardMaterial(Object.assign({ color, roughness: 0.6, metalness: 0.15 }, o || {}));
-const basic = (color, o) => new T.MeshBasicMaterial(Object.assign({ color }, o || {}));
+// Colours are written the way a designer picks them (sRGB) and converted once, because the lighting maths is linear.
+const lin = c => (c && c.isColor ? c.clone() : new T.Color(c).convertSRGBToLinear());
+const setLin = (color, hex) => color.set(hex).convertSRGBToLinear();
+const pf = f => Math.pow(f, 2.2);                 // a brightness factor as the eye sees it, turned into a linear one
+const tint = lin(0x4fe3d0), tintT = lin(0x4fe3d0), COOL = lin(0x5f86ff), SKYLIGHT = lin(0x9fb4ff), _c = new T.Color(), _v = new T.Vector3();
+function std(color, o) {
+  o = Object.assign({ roughness: 0.6, metalness: 0.15, envMapIntensity: 0.85 }, o || {});
+  const em = o.emissive;
+  delete o.emissive;
+  const m = o.clearcoat !== undefined ? new T.MeshPhysicalMaterial(o) : new T.MeshStandardMaterial(o);
+  m.color.copy(lin(color));
+  if (em !== undefined) m.emissive.copy(lin(em));
+  return m;
+}
+// Things that are light themselves (rims, eyes, beams) skip the tone curve so they stay vivid and feed the bloom.
+function basic(color, o) { const m = new T.MeshBasicMaterial(Object.assign({ toneMapped: false }, o || {})); m.color.copy(lin(color)); return m; }
 const easeInOut = k => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
 const easeOut = k => 1 - Math.pow(1 - k, 3);
 const easeIn = k => k * k;
@@ -43,16 +62,31 @@ function stepTweens(dt) {
   }
 }
 function cancelAll() { epoch++; const old = tweens.splice(0); for (const t of old) t.res(); }
+function canvasTex(c) { const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.anisotropy = 4; return t; }
 function makeGlow() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.25, 'rgba(255,255,255,.55)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-  return new T.CanvasTexture(c);
+  return canvasTex(c);
+}
+// Light lines for the deck of a test arena: nested hexagons and spokes, drawn once and tinted by the floor colour.
+function makeGrid() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, 512, 512);
+  g.translate(256, 256);
+  g.strokeStyle = '#fff'; g.lineJoin = 'round';
+  const hex = (r, w, a) => { g.globalAlpha = a; g.lineWidth = w; g.beginPath(); for (let i = 0; i <= 6; i++) { const t = i * Math.PI / 3; g[i ? 'lineTo' : 'moveTo'](r * Math.cos(t), r * Math.sin(t)); } g.stroke(); };
+  hex(238, 5, 1); hex(178, 2, 0.5); hex(112, 2, 0.38); hex(50, 3, 0.85);
+  g.lineWidth = 2; g.globalAlpha = 0.3;
+  for (let i = 0; i < 6; i++) { const t = i * Math.PI / 3 + Math.PI / 6; g.beginPath(); g.moveTo(44 * Math.cos(t), 44 * Math.sin(t)); g.lineTo(205 * Math.cos(t), 205 * Math.sin(t)); g.stroke(); }
+  return canvasTex(c);
 }
 function glow(color, size, opacity) {
-  const s = new T.Sprite(new T.SpriteMaterial({ map: glowTex, color, transparent: true, opacity: opacity === undefined ? 0.6 : opacity, depthWrite: false, blending: T.AdditiveBlending, fog: false }));
+  const s = new T.Sprite(new T.SpriteMaterial({ map: glowTex, color: lin(color), transparent: true, opacity: opacity === undefined ? 0.6 : opacity, depthWrite: false, blending: T.AdditiveBlending, fog: false, toneMapped: false }));
   s.scale.set(size, size, 1);
   return s;
 }
@@ -62,18 +96,105 @@ function textTex(text, w, h, font, color) {
   const g = c.getContext('2d');
   g.font = font; g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText(text, w / 2, h / 2 + h * 0.04);
-  const t = new T.CanvasTexture(c);
-  t.anisotropy = 4;
-  return t;
+  return canvasTex(c);
 }
+const track = s => s.split('').join(' ');       // letter-spacing for canvas text, which has none of its own
 function dispose(obj) {
+  const own = t => t && t !== glowTex && t !== gridTex;
   obj.traverse(o => {
     if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
     const m = o.material;
-    if (m) { if (m.map && m.map !== glowTex) m.map.dispose(); m.dispose(); }
+    if (m) { if (own(m.map)) m.map.dispose(); if (own(m.emissiveMap)) m.emissiveMap.dispose(); m.dispose(); }
   });
 }
+// Solid, lit surfaces cast and receive shadows; lights, glows and labels do not.
+function lit(group) { group.traverse(o => { if (o.isMesh && o.material && o.material.isMeshStandardMaterial) { o.castShadow = true; o.receiveShadow = true; } }); }
+// A sphere seen from inside, shaded from bottom to top through the given stops: [height -1..1, r, g, b] in linear light.
+function paint(geo, stops) {
+  const p = geo.attributes.position, n = p.count, col = new Float32Array(n * 3);
+  let r = 0;
+  for (let i = 0; i < n; i++) r = Math.max(r, Math.abs(p.getY(i)));
+  for (let i = 0; i < n; i++) {
+    const y = p.getY(i) / r;
+    let k = 0;
+    while (k < stops.length - 2 && y > stops[k + 1][0]) k++;
+    const a = stops[k], b = stops[k + 1], t = Math.max(0, Math.min(1, (y - a[0]) / (b[0] - a[0])));
+    for (let c = 0; c < 3; c++) col[i * 3 + c] = a[c + 1] + (b[c + 1] - a[c + 1]) * t;
+  }
+  geo.setAttribute('color', new T.BufferAttribute(col, 3));
+}
 const sfx = name => { if (cb.sfx) cb.sfx(name); };
+
+// ---------------------------------------------------------------- picture quality
+// Three tiers. "auto" starts from the kind of device and steps down by itself if frames stay slow.
+const TIERS = { high: { dpr: 2, shadow: 2048, bloom: 2 }, medium: { dpr: 1.5, shadow: 1024, bloom: 1 }, low: { dpr: 1.25, shadow: 0, bloom: 0 } };
+let qPref = 'auto', qName = 'high', q = TIERS.high, slow = 0, grace = 0;
+function autoTier() {
+  const mem = root.navigator && root.navigator.deviceMemory;
+  if (mem && mem <= 3) return 'low';
+  return coarse || Math.min(root.innerWidth || 9999, root.innerHeight || 9999) < 520 ? 'medium' : 'high';
+}
+function settle() { grace = performance.now() + 3000; slow = 0; }      // new shaders compile after a change: do not count those frames
+function applyQuality(name) {
+  qName = name; q = TIERS[name];
+  renderer.setPixelRatio(Math.min(root.devicePixelRatio || 1, q.dpr));
+  renderer.shadowMap.enabled = q.shadow > 0;
+  sun.castShadow = q.shadow > 0;
+  if (q.shadow && sun.shadow.mapSize.x !== q.shadow) {
+    sun.shadow.mapSize.set(q.shadow, q.shadow);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  }
+  scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });       // shadows on or off changes every lit shader
+  settle();
+  W.resize();
+}
+W.setQuality = function (name) { qPref = TIERS[name] ? name : 'auto'; if (renderer) applyQuality(qPref === 'auto' ? autoTier() : qPref); };
+W.getQuality = () => ({ pref: qPref, now: qName });
+
+// ---------------------------------------------------------------- bloom
+// The scene is drawn a second time at low resolution, everything but its brightest parts is thrown away, the rest is blurred
+// and added on top of the sharp picture. The sharp picture keeps its anti-aliasing because it is never read back.
+const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const FS_BRIGHT = 'uniform sampler2D tex; uniform float lo; uniform float hi; varying vec2 vUv; void main() { vec3 c = texture2D(tex, vUv).rgb; float m = max(c.r, max(c.g, c.b)); gl_FragColor = vec4(c * smoothstep(lo, hi, m), 1.0); }';
+const FS_BLUR = 'uniform sampler2D tex; uniform vec2 dir; varying vec2 vUv; void main() { vec3 c = texture2D(tex, vUv).rgb * 0.227027; c += (texture2D(tex, vUv + dir * 1.3846).rgb + texture2D(tex, vUv - dir * 1.3846).rgb) * 0.316216; c += (texture2D(tex, vUv + dir * 3.2308).rgb + texture2D(tex, vUv - dir * 3.2308).rgb) * 0.070270; gl_FragColor = vec4(c, 1.0); }';
+const FS_ADD = 'uniform sampler2D tex; uniform sampler2D wide; uniform float sa; uniform float sb; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(tex, vUv).rgb * sa + texture2D(wide, vUv).rgb * sb, 1.0); }';
+function makeBloom() {
+  const rt = depth => { const t = new T.WebGLRenderTarget(4, 4, { minFilter: T.LinearFilter, magFilter: T.LinearFilter, format: T.RGBAFormat, depthBuffer: depth, stencilBuffer: false }); t.texture.generateMipmaps = false; return t; };
+  const mat = (fs, uniforms, extra) => new T.ShaderMaterial(Object.assign({ vertexShader: VS, fragmentShader: fs, uniforms, depthTest: false, depthWrite: false }, extra || {}));
+  const b = { scene: rt(true), a1: rt(false), a2: rt(false), b1: rt(false), b2: rt(false), qscene: new T.Scene(), qcam: new T.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
+  b.scene.texture.encoding = T.sRGBEncoding;           // so this copy holds the same display colours as the screen
+  b.bright = mat(FS_BRIGHT, { tex: { value: null }, lo: { value: 0.8 }, hi: { value: 1.02 } });
+  b.blur = mat(FS_BLUR, { tex: { value: null }, dir: { value: new T.Vector2() } });
+  b.add = mat(FS_ADD, { tex: { value: null }, wide: { value: null }, sa: { value: 0.7 }, sb: { value: 0.8 } }, { blending: T.AdditiveBlending, transparent: true });
+  b.quad = new T.Mesh(new T.PlaneGeometry(2, 2), b.bright);
+  b.quad.frustumCulled = false;
+  b.qscene.add(b.quad);
+  return b;
+}
+function sizeBloom(w, h) {
+  if (!bloom) return;
+  const s = (t, d) => t.setSize(Math.max(2, Math.round(w / d)), Math.max(2, Math.round(h / d)));
+  s(bloom.scene, 2); s(bloom.a1, 4); s(bloom.a2, 4); s(bloom.b1, 8); s(bloom.b2, 8);
+}
+function pass(m, tex, target) { m.uniforms.tex.value = tex; bloom.quad.material = m; renderer.setRenderTarget(target); renderer.render(bloom.qscene, bloom.qcam); }
+function drawBloom() {
+  const b = bloom, d = b.blur.uniforms.dir.value;
+  renderer.setRenderTarget(b.scene);
+  renderer.render(scene, camera);
+  pass(b.bright, b.scene.texture, b.a1);
+  d.set(1 / b.a1.width, 0); pass(b.blur, b.a1.texture, b.a2);
+  d.set(0, 1 / b.a1.height); pass(b.blur, b.a2.texture, b.a1);
+  if (q.bloom > 1) {                                   // a second, wider halo
+    d.set(1.5 / b.b1.width, 0); pass(b.blur, b.a1.texture, b.b2);
+    d.set(0, 1.5 / b.b1.height); pass(b.blur, b.b2.texture, b.b1);
+  }
+  b.add.uniforms.tex.value = b.a1.texture; b.add.uniforms.wide.value = b.b1.texture; b.add.uniforms.sb.value = q.bloom > 1 ? 0.8 : 0;
+  b.quad.material = b.add;
+  renderer.setRenderTarget(null);
+  renderer.autoClear = false;
+  renderer.render(b.qscene, b.qcam);
+  renderer.autoClear = true;
+}
 
 // ---------------------------------------------------------------- particles
 const PMAX = 420;
@@ -84,13 +205,13 @@ function makeParticles() {
   for (let i = 0; i < PMAX; i++) ppos[i * 3 + 1] = -9999;
   geo.setAttribute('position', new T.BufferAttribute(ppos, 3));
   geo.setAttribute('color', new T.BufferAttribute(pcol, 3));
-  parts = new T.Points(geo, new T.PointsMaterial({ size: 0.34, map: glowTex, vertexColors: true, transparent: true, depthWrite: false, blending: T.AdditiveBlending, fog: false }));
+  parts = new T.Points(geo, new T.PointsMaterial({ size: 0.34, map: glowTex, vertexColors: true, transparent: true, depthWrite: false, blending: T.AdditiveBlending, fog: false, toneMapped: false }));
   parts.frustumCulled = false;
   scene.add(parts);
 }
 function burst(p, color, n, speed, lift) {
   if (calm) n = Math.ceil(n / 3);
-  const c = new T.Color(color);
+  const c = lin(color);
   for (let k = 0; k < n; k++) {
     const i = pcur++ % PMAX, a = Math.random() * TAU, u = Math.random() * 2 - 1, r = Math.sqrt(1 - u * u), s = speed * (0.35 + Math.random() * 0.65);
     ppos[i * 3] = p.x; ppos[i * 3 + 1] = p.y; ppos[i * 3 + 2] = p.z;
@@ -118,25 +239,29 @@ function stepParticles(dt) {
 function makePip() {
   const g = new T.Group(), tilt = new T.Group();
   g.add(tilt);
-  const shell = std(0xe9edff, { roughness: 0.32, metalness: 0.12 }), dark = std(0x11183a, { roughness: 0.35, metalness: 0.35 });
-  const body = new T.Mesh(new T.SphereGeometry(0.34, 24, 16), shell);
+  // The shell is painted mid-grey on purpose: under the key light and the film curve that is what reads as white with shading left in it.
+  const shell = std(0x8f97b3, { roughness: 0.3, metalness: 0.04, clearcoat: 1, clearcoatRoughness: 0.16, envMapIntensity: 0.7 });
+  const dark = std(0x0c1232, { roughness: 0.22, metalness: 0.75, envMapIntensity: 1.35 });
+  const body = new T.Mesh(new T.SphereGeometry(0.34, 32, 20), shell);
   body.scale.y = 0.92;
-  const visor = new T.Mesh(new T.SphereGeometry(0.347, 24, 12, Math.PI / 2 - 0.95, 1.9, Math.PI / 2 - 0.46, 0.66), dark);
+  const visor = new T.Mesh(new T.SphereGeometry(0.347, 32, 14, Math.PI / 2 - 0.95, 1.9, Math.PI / 2 - 0.46, 0.66), dark);
   visor.scale.y = 0.92;
   const eyeMat = basic(0x7ff6ff);
-  const eyes = [-0.115, 0.115].map(x => { const e = new T.Mesh(new T.CircleGeometry(0.052, 14), eyeMat); e.position.set(x, 0.045, 0.352); e.rotation.y = x * 2.4; tilt.add(e); return e; });
+  const eyes = [-0.115, 0.115].map(x => { const e = new T.Mesh(new T.CircleGeometry(0.052, 16), eyeMat); e.position.set(x, 0.045, 0.352); e.rotation.y = x * 2.4; tilt.add(e); return e; });
   const mast = new T.Mesh(new T.CylinderGeometry(0.012, 0.012, 0.2, 6), dark);
   mast.position.y = 0.4;
   const tipMat = basic(0xffc247), tip = new T.Mesh(new T.SphereGeometry(0.045, 10, 8), tipMat);
   tip.position.y = 0.52;
-  const ears = [-1, 1].map(s => { const e = new T.Mesh(new T.CylinderGeometry(0.075, 0.075, 0.09, 12), dark); e.rotation.z = Math.PI / 2; e.position.x = s * 0.35; tilt.add(e); return e; });
+  const ears = [-1, 1].map(s => { const e = new T.Mesh(new T.CylinderGeometry(0.075, 0.075, 0.09, 14), dark); e.rotation.z = Math.PI / 2; e.position.x = s * 0.35; tilt.add(e); return e; });
   const ring = new T.Mesh(new T.TorusGeometry(0.2, 0.028, 8, 28), basic(0x4fe3d0));
   ring.rotation.x = Math.PI / 2; ring.position.y = -0.36;
   const under = glow(0x4fe3d0, 0.95, 0.5);
   under.position.y = -0.5;
-  const shadow = new T.Mesh(new T.CircleGeometry(0.3, 20), basic(0x000000, { transparent: true, opacity: 0.35, depthWrite: false }));
+  const lamp = new T.PointLight(lin(0x4fe3d0), 1.1, 5.5, 2);          // the thruster lights whatever PIP hovers over
+  lamp.position.y = -0.3;
+  const shadow = new T.Mesh(new T.CircleGeometry(0.3, 20), basic(0x000000, { transparent: true, opacity: 0.26, depthWrite: false }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = -0.41;
-  tilt.add(body, visor, mast, tip, ring, under);
+  tilt.add(body, visor, mast, tip, ring, under, lamp);
   g.add(shadow);
   g.userData = { tilt, eyes, eyeMat, ears, ring, tip, shadow, mood: 'idle', phase: Math.random() * 6 };
   return g;
@@ -144,7 +269,7 @@ function makePip() {
 function setMood(p, mood) {
   const u = p.userData;
   u.mood = mood;
-  u.eyeMat.color.setHex(mood === 'sad' ? 0xff6b7d : mood === 'off' ? 0x26305c : 0x7ff6ff);
+  setLin(u.eyeMat.color, mood === 'sad' ? 0xff6b7d : mood === 'off' ? 0x26305c : 0x7ff6ff);
   for (const e of u.eyes) e.scale.set(1, mood === 'happy' ? 0.38 : mood === 'sad' ? 0.7 : 1, 1);
 }
 function idlePip(p, base, dt) {
@@ -163,16 +288,17 @@ function buildHub() {
   scene.add(hub);
   const nz = zones.length;
   topY = nz * ZONE_H;
-  const island = new T.Mesh(new T.CylinderGeometry(15.5, 10.5, 2.6, 6), std(0x0e1536, { roughness: 0.9 }));
+  const island = new T.Mesh(new T.CylinderGeometry(15.5, 10.5, 2.6, 6), std(0x0a0f2a, { roughness: 0.88, metalness: 0.15, envMapIntensity: 0.35 }));
   island.position.y = -2.1;
   const islandRim = new T.Mesh(new T.TorusGeometry(15.2, 0.1, 6, 6), basic(0x2b3a80));
   islandRim.rotation.set(Math.PI / 2, 0, Math.PI / 6); islandRim.position.y = -0.8;
   const islandGlow = glow(0x3a56c8, 46, 0.22);
   islandGlow.position.set(0, -6, 0);
   hub.add(island, islandRim, islandGlow);
+  const coreMat = std(0x10173c, { roughness: 0.5, metalness: 0.55, envMapIntensity: 0.7 }), collarMat = std(0x1a2456, { roughness: 0.4, metalness: 0.6 });
   zones.forEach((z, k) => {
-    const y0 = k * ZONE_H, col = new T.Color(z.color);
-    const core = new T.Mesh(new T.CylinderGeometry(2.3, 2.3, ZONE_H - 0.5, 6), std(0x121a40, { roughness: 0.55, metalness: 0.35 }));
+    const y0 = k * ZONE_H, col = lin(z.color);
+    const core = new T.Mesh(new T.CylinderGeometry(2.3, 2.3, ZONE_H - 0.5, 6), coreMat);
     core.position.y = y0 + ZONE_H / 2;
     hub.add(core);
     const stripMat = basic(0x000000);
@@ -181,20 +307,20 @@ function buildHub() {
       s.position.set(2.36 * Math.sin(a), y0 + ZONE_H / 2, 2.36 * Math.cos(a));
       hub.add(s);
     }
-    const collar = new T.Mesh(new T.CylinderGeometry(3.2, 3.2, 0.5, 6), std(0x1a2456, { metalness: 0.3 }));
+    const collar = new T.Mesh(new T.CylinderGeometry(3.2, 3.2, 0.5, 6), collarMat);
     collar.position.y = y0 + 0.05;
     const ringMat = basic(0x000000), ring = new T.Mesh(new T.TorusGeometry(3.7, 0.09, 8, 54), ringMat);
     ring.rotation.x = Math.PI / 2; ring.position.y = y0 + 0.05;
     const halo = glow(z.color, 13, 0);
     halo.position.y = y0 + ZONE_H / 2;
     const a0 = nodeAngle(k * PER_TURN) + 0.4;
-    const label = new T.Sprite(new T.SpriteMaterial({ map: textTex('FLOOR ' + (k + 1) + '  ·  ' + z.name.toUpperCase(), 768, 96, "600 50px 'Chakra Petch', 'Trebuchet MS', sans-serif", z.color), transparent: true, depthWrite: false, fog: true }));
-    label.scale.set(5.2, 0.65, 1);
+    const label = new T.Sprite(new T.SpriteMaterial({ map: textTex(track('FLOOR ' + (k + 1) + '  ·  ' + z.name.toUpperCase()), 1024, 96, '600 56px ' + FONT, z.color), transparent: true, depthWrite: false, fog: true, toneMapped: false }));
+    label.scale.set(6.9, 0.65, 1);
     label.position.set(5.6 * Math.cos(a0), y0 + 5.2, 5.6 * Math.sin(a0));
     hub.add(collar, ring, halo, label);
     zoneInfo.push({ col, stripMat, ringMat, halo });
   });
-  const spire = new T.Mesh(new T.CylinderGeometry(0.12, 1.7, 9, 6), std(0x1a2456, { metalness: 0.4 }));
+  const spire = new T.Mesh(new T.CylinderGeometry(0.12, 1.7, 9, 6), std(0x1a2456, { roughness: 0.35, metalness: 0.7 }));
   spire.position.y = topY + 4.5;
   beacon = new T.Mesh(new T.IcosahedronGeometry(1.05, 1), basic(0x2c3870));
   beacon.position.y = topY + 9.7;
@@ -204,28 +330,30 @@ function buildHub() {
 
   const starGeo = new T.OctahedronGeometry(0.16);
   starGeo.userData.shared = true;
+  const baseMat = std(0x1a2352, { roughness: 0.42, metalness: 0.62, envMapIntensity: 1 }), strutMat = std(0x141c46, { roughness: 0.45, metalness: 0.6 }), starMat = basic(0xffc247);
   levels.forEach((lv, i) => {
     const a = nodeAngle(i), pos = nodePos(i), big = lv.boss ? 1.35 : 1, g = new T.Group();
     g.position.copy(pos);
     g.rotation.y = -a;                                  // local +X points away from the tower
-    const baseM = new T.Mesh(new T.CylinderGeometry(1.45 * big, 1.12 * big, 0.56, 6), std(0x1c2658, { roughness: 0.62, metalness: 0.22 }));
+    const baseM = new T.Mesh(new T.CylinderGeometry(1.45 * big, 1.12 * big, 0.56, 6), baseMat);
     baseM.userData.node = i;
     pickables.push(baseM);
-    const topMat = basic(0x141b3d), top = new T.Mesh(new T.CylinderGeometry(1.2 * big, 1.2 * big, 0.06, 6), topMat);
+    // The top is dark glass; its state colour is light coming from inside it, so shadows and reflections still show on it.
+    const topMat = std(0x080c22, { roughness: 0.36, metalness: 0.3, envMapIntensity: 0.8 }), top = new T.Mesh(new T.CylinderGeometry(1.2 * big, 1.2 * big, 0.06, 6), topMat);
     top.position.y = 0.3;
     top.userData.node = i;
     pickables.push(top);
     const rimMat = basic(0x222b5a), rim = new T.Mesh(new T.TorusGeometry(1.44 * big, 0.05, 6, 6), rimMat);
     rim.rotation.set(Math.PI / 2, 0, Math.PI / 6); rim.position.y = 0.3;
-    const decalMat = basic(0xffffff, { map: textTex(lv.boss ? '★' : String(lv.order), 128, 128, "700 84px 'Chakra Petch', 'Trebuchet MS', sans-serif", '#ffffff'), transparent: true, depthWrite: false });
+    const decalMat = basic(0xffffff, { map: textTex(lv.boss ? '★' : String(lv.order), 128, 128, '700 92px ' + FONT, '#ffffff'), transparent: true, depthWrite: false });
     const decal = new T.Mesh(new T.PlaneGeometry(1.45 * big, 1.45 * big), decalMat), dh = new T.Group();
     decal.rotation.x = -Math.PI / 2;
     dh.rotation.y = Math.PI / 2; dh.position.y = 0.345;
     dh.add(decal);
-    const strutLen = RADIUS - 3.6, strut = new T.Mesh(new T.BoxGeometry(strutLen, 0.14, 0.34), std(0x161f4a, { metalness: 0.3 }));
+    const strutLen = RADIUS - 3.6, strut = new T.Mesh(new T.BoxGeometry(strutLen, 0.14, 0.34), strutMat);
     strut.position.set(-(1.2 * big + strutLen / 2), -0.16, 0);
     const stars = new T.Group();
-    for (let s = 0; s < 3; s++) { const m = new T.Mesh(starGeo, basic(0xffc247)); m.position.set(0, 0, (s - 1) * 0.5); stars.add(m); }
+    for (let s = 0; s < 3; s++) { const m = new T.Mesh(starGeo, starMat); m.position.set(0, 0, (s - 1) * 0.5); stars.add(m); }
     stars.position.y = 1.9 * (lv.boss ? 1.15 : 1);
     stars.visible = false;
     g.add(baseM, top, rim, dh, strut, stars);
@@ -248,6 +376,7 @@ function buildHub() {
   hubPip = makePip();
   hubPip.scale.setScalar(1.45);
   hub.add(hubPip);
+  lit(hub);
 }
 W.setProgress = function (states, next) {
   nextNode = next;
@@ -256,12 +385,12 @@ W.setProgress = function (states, next) {
     const s = states[i];
     n.state = s.state;
     const c = n.col;
-    if (s.state === 'solved') { n.topMat.color.copy(c).multiplyScalar(0.92); n.rimMat.color.copy(c); n.decalMat.color.setHex(0x0a0f2a); n.decalMat.opacity = 0.95; }
-    else if (s.state === 'open') { n.topMat.color.copy(c).multiplyScalar(0.34); n.rimMat.color.copy(c).multiplyScalar(0.75); n.decalMat.color.setHex(0xffffff); n.decalMat.opacity = 1; }
-    else { n.topMat.color.setHex(0x121939); n.rimMat.color.setHex(0x222b5a); n.decalMat.color.setHex(0x8892c4); n.decalMat.opacity = 0.35; }
+    if (s.state === 'solved') { n.topMat.emissive.copy(c).multiplyScalar(pf(0.9)); n.rimMat.color.copy(c); setLin(n.decalMat.color, 0x0a0f2a); n.decalMat.opacity = 0.95; }
+    else if (s.state === 'open') { n.topMat.emissive.copy(c).multiplyScalar(pf(0.36)); n.rimMat.color.copy(c).multiplyScalar(pf(0.75)); setLin(n.decalMat.color, 0xffffff); n.decalMat.opacity = 1; }
+    else { setLin(n.topMat.emissive, 0x0d1330); setLin(n.rimMat.color, 0x222b5a); setLin(n.decalMat.color, 0x8892c4); n.decalMat.opacity = 0.35; }
     n.stars.visible = s.state === 'solved';
     n.stars.children.forEach((m, k) => { m.visible = k < s.stars; });
-    if (n.bridgeMat) { if (s.state === 'solved') n.bridgeMat.color.copy(c).multiplyScalar(0.85); else n.bridgeMat.color.setHex(0x18204a); }
+    if (n.bridgeMat) { if (s.state === 'solved') n.bridgeMat.color.copy(c).multiplyScalar(pf(0.85)); else setLin(n.bridgeMat.color, 0x18204a); }
     countByZone[n.lv.zone - 1]++;
     if (s.state === 'solved') solvedByZone[n.lv.zone - 1]++;
   });
@@ -269,11 +398,11 @@ W.setProgress = function (states, next) {
   zoneInfo.forEach((z, k) => {
     const r = countByZone[k] ? solvedByZone[k] / countByZone[k] : 0;
     if (r < 1) all = false;
-    z.stripMat.color.copy(z.col).multiplyScalar(0.1 + 0.9 * r);
-    z.ringMat.color.copy(z.col).multiplyScalar(r >= 1 ? 1 : 0.22 + 0.3 * r);
+    z.stripMat.color.copy(z.col).multiplyScalar(pf(0.1 + 0.9 * r));
+    z.ringMat.color.copy(z.col).multiplyScalar(pf(r >= 1 ? 1 : 0.22 + 0.3 * r));
     z.halo.material.opacity = r >= 1 ? 0.2 : 0.05 * r;
   });
-  beacon.material.color.setHex(all ? 0xfff6d6 : 0x2c3870);
+  setLin(beacon.material.color, all ? 0xfff6d6 : 0x2c3870);
   beaconGlow.material.opacity = all ? 0.95 : 0.08;
 };
 function nearAngle(a, ref) { return a + TAU * Math.round((ref - a) / TAU); }
@@ -288,6 +417,7 @@ W.select = function (i, instant) {
   selected = i;
   camT.az = nearAngle(n.a, camT.az);
   camT.y = n.pos.y;
+  if (mode === 'hub') tintT.copy(n.col);
   selRing.position.set(n.pos.x, n.pos.y + 0.36, n.pos.z);
   selRing.scale.setScalar(n.lv.boss ? 1.3 : 1);
   if (instant || from === i || mode !== 'hub') { cam.az = instant ? camT.az : cam.az; if (instant) cam.y = camT.y; placeHubPip(i); return; }
@@ -308,6 +438,8 @@ W.showHub = function (celebrate) {
   scene.fog.density = 0.012;
   placeHubPip(selected);
   setMood(hubPip, 'idle');
+  if (nodes[selected]) tintT.copy(nodes[selected].col);
+  settle();
   if (celebrate !== undefined && nodes[celebrate]) {
     const n = nodes[celebrate];
     burst(new T.Vector3(n.pos.x, n.pos.y + 1, n.pos.z), n.col, 70, 5, 3);
@@ -324,22 +456,25 @@ function clearArena() {
   mode = 'arena';
   hub.visible = false;
   scene.fog.density = 0.006;
+  settle();
 }
 function fitDist(radius, el) {
   const aspect = stage.clientWidth / Math.max(1, stage.clientHeight), half = T.MathUtils.degToRad(camera.fov / 2);
   const eff = aspect >= 1 ? half : Math.atan(Math.tan(half) * aspect);
   return radius / Math.sin(eff) * (0.74 + 0.1 * el);
 }
+// Every arena opens with the camera a little too far and too high, and lets it settle: a short push-in.
+function openShot() { Object.assign(acam, acamT); if (!calm) { acam.dist = acamT.dist * 1.32; acam.el = Math.min(1.5, acamT.el + 0.2); } }
 
 // ---------------------------------------------------------------- arena: robot deck
 const HEAD = { N: Math.PI, E: Math.PI / 2, S: 0, W: -Math.PI / 2 };
 W.showRobot = function (world, color) {
   clearArena();
-  const col = new T.Color(color), ox = -(world.w - 1) / 2, oz = -(world.h - 1) / 2;
+  const col = lin(color), ox = -(world.w - 1) / 2, oz = -(world.h - 1) / 2;
   const tileGeo = new T.BoxGeometry(0.94, 0.4, 0.94), wallGeo = new T.BoxGeometry(0.94, 0.6, 0.94), edgeGeo = new T.EdgesGeometry(wallGeo);
   let walls = 0;
-  const matA = std(0x1d2860, { roughness: 0.7 }), matB = std(0x18214f, { roughness: 0.7 }), wallMat = std(0x2a3877, { roughness: 0.5, metalness: 0.25 });
-  const edgeMat = new T.LineBasicMaterial({ color: col.clone().multiplyScalar(0.9), transparent: true, opacity: 0.75 });
+  const matA = std(0x18225a, { roughness: 0.5, metalness: 0.35, envMapIntensity: 0.6 }), matB = std(0x121a44, { roughness: 0.5, metalness: 0.35, envMapIntensity: 0.6 }), wallMat = std(0x1f2b68, { roughness: 0.5, metalness: 0.35, envMapIntensity: 0.55 });
+  const edgeMat = new T.LineBasicMaterial({ color: col.clone().multiplyScalar(pf(0.9)), transparent: true, opacity: 0.75, toneMapped: false });
   for (let y = 0; y < world.h; y++) for (let x = 0; x < world.w; x++) {
     const c = world.cells[y][x];
     if (c === 'void') continue;
@@ -365,12 +500,14 @@ W.showRobot = function (world, color) {
     shaft.position.copy(p).setY(1.3);
     const g = glow(0xffc247, 1.9, 0.55);
     g.position.copy(p).setY(0.25);
-    arena.add(ring, shaft, g);
+    const lamp = new T.PointLight(lin(0xffc247), 1.3, 4.5, 2);
+    lamp.position.copy(p).setY(0.8);
+    arena.add(ring, shaft, g, lamp);
     board.exit = { p, ring, shaft };
   }
-  const shardGeo = new T.OctahedronGeometry(0.19);
+  const shardGeo = new T.OctahedronGeometry(0.19), shardMat = std(0x0b1030, { emissive: 0x8ff8ff, emissiveIntensity: 1.25, roughness: 0.1, metalness: 0.3, flatShading: true, envMapIntensity: 1.5 });
   for (const s of world.shards) {
-    const m = new T.Mesh(shardGeo, basic(0x8ff8ff)), g = glow(0x4fe3d0, 0.9, 0.5), holder = new T.Group();
+    const m = new T.Mesh(shardGeo, shardMat), g = glow(0x4fe3d0, 0.9, 0.5), holder = new T.Group();
     holder.position.set(ox + s[0], 0.5, oz + s[1]);
     holder.add(m, g);
     arena.add(holder);
@@ -386,7 +523,10 @@ W.showRobot = function (world, color) {
   atarget.set(0, 0.1, 0);
   const el = walls > 4 ? 1.08 : 0.8;           // look more steeply into mazes so walls do not hide the corridors
   acamT.az = Math.PI / 2; acamT.el = el; acamT.dist = fitDist(r, el);
-  Object.assign(acam, acamT);
+  openShot();
+  arenaSpan = r + 2.5;
+  tintT.copy(col);
+  lit(arena);
 };
 function resetRobot() {
   if (!board) return;
@@ -464,25 +604,28 @@ W.playRobot = async function (run, opts) {
 const CSTATE = { idle: 0x2a3676, run: 0xffffff, pass: null, fail: 0xff5d73, slow: 0xffb347 };
 W.showTests = function (count, perf, color, boss) {
   clearArena();
-  const col = new T.Color(color);
-  const deck = new T.Mesh(new T.CylinderGeometry(3.3, 2.7, 0.6, 6), std(0x18214f, { roughness: 0.6, metalness: 0.25 }));
+  const col = lin(color);
+  const deck = new T.Mesh(new T.CylinderGeometry(3.3, 2.7, 0.6, 6), std(0x151d48, { roughness: 0.4, metalness: 0.62 }));
   deck.position.y = -0.3;
-  const deckTop = new T.Mesh(new T.CylinderGeometry(3.0, 3.0, 0.05, 6), basic(col.clone().multiplyScalar(0.22)));
+  // Dark glass with the floor's colour running through it as lines of light.
+  const deckTop = new T.Mesh(new T.CylinderGeometry(3.0, 3.0, 0.05, 6), std(0x070b1e, { emissive: col, emissiveMap: gridTex, emissiveIntensity: 1.15, roughness: 0.18, metalness: 0.55, envMapIntensity: 1.2 }));
   deckTop.position.y = 0.02;
-  const rim = new T.Mesh(new T.TorusGeometry(3.3, 0.06, 6, 6), basic(col));
-  rim.rotation.set(Math.PI / 2, 0, Math.PI / 6);
+  const rimM = new T.Mesh(new T.TorusGeometry(3.3, 0.06, 6, 6), basic(col));
+  rimM.rotation.set(Math.PI / 2, 0, Math.PI / 6);
   const under = glow(color, 13, 0.2);
   under.position.y = -2;
-  arena.add(deck, deckTop, rim, under);
+  arena.add(deck, deckTop, rimM, under);
   const span = Math.min(2.2, 0.36 * Math.max(1, count - 1)), R = 4.7;
+  const padMat = std(0x1c2658, { roughness: 0.4, metalness: 0.6 }), postMat = std(0x2a3877, { roughness: 0.35, metalness: 0.65 });
   for (let i = 0; i < count; i++) {
     const th = count === 1 ? 0 : -span / 2 + span * i / (count - 1), big = perf[i] ? 1.3 : 1;
     const x = R * Math.sin(th), z = -R * Math.cos(th) + 1.6, h = 1.5 + (perf[i] ? 0.35 : 0);
-    const pad = new T.Mesh(new T.CylinderGeometry(0.42, 0.52, 0.22, 6), std(0x1c2658, { metalness: 0.3 }));
+    const pad = new T.Mesh(new T.CylinderGeometry(0.42, 0.52, 0.22, 6), padMat);
     pad.position.set(x, -0.2, z);
-    const post = new T.Mesh(new T.CylinderGeometry(0.035, 0.035, h, 6), std(0x2a3877));
+    const post = new T.Mesh(new T.CylinderGeometry(0.035, 0.035, h, 6), postMat);
     post.position.set(x, h / 2 - 0.1, z);
-    const mat = basic(CSTATE.idle), gem = new T.Mesh(new T.OctahedronGeometry(0.4 * big), mat);
+    // A faceted gem: it reflects the lamps around it and glows from inside in the colour of its state.
+    const mat = std(0x0b1030, { emissive: CSTATE.idle, emissiveIntensity: 0.7, roughness: 0.1, metalness: 0.35, flatShading: true, envMapIntensity: 1.05 }), gem = new T.Mesh(new T.OctahedronGeometry(0.4 * big), mat);
     gem.position.set(x, h + 0.35, z);
     const g = glow(0xffffff, 2.2 * big, 0);
     g.position.copy(gem.position);
@@ -492,8 +635,8 @@ W.showTests = function (count, perf, color, boss) {
   }
   if (boss) {
     lock = new T.Group();
-    const shellM = new T.Mesh(new T.IcosahedronGeometry(1.15, 0), std(0x1a2150, { roughness: 0.4, metalness: 0.5, flatShading: true }));
-    const wire = new T.LineSegments(new T.EdgesGeometry(shellM.geometry), new T.LineBasicMaterial({ color: 0xff7a6b }));
+    const shellM = new T.Mesh(new T.IcosahedronGeometry(1.15, 0), std(0x1a2150, { roughness: 0.3, metalness: 0.7, flatShading: true, envMapIntensity: 1.3 }));
+    const wire = new T.LineSegments(new T.EdgesGeometry(shellM.geometry), new T.LineBasicMaterial({ color: lin(0xff7a6b), toneMapped: false }));
     lock.add(shellM, wire, glow(0xff7a6b, 5, 0.35));
     lock.position.set(0, 5.2, -3.4);
     arena.add(lock);
@@ -507,15 +650,19 @@ W.showTests = function (count, perf, color, boss) {
   board = { col };
   atarget.set(0, 1.5, -1.2);
   acamT.az = Math.PI / 2; acamT.el = 0.36; acamT.dist = fitDist(boss ? 7.6 : 6.6, 0.36);
-  Object.assign(acam, acamT);
+  openShot();
+  arenaSpan = 9;
+  tintT.copy(col);
+  lit(arena);
 };
 function setCrystal(i, state) {
   const c = crystals[i];
   if (!c) return;
   c.state = state;
-  c.mat.color.copy(state === 'pass' ? board.col : new T.Color(CSTATE[state]));
-  c.glow.material.color.copy(c.mat.color);
-  c.glow.material.opacity = state === 'idle' ? 0 : state === 'run' ? 0.9 : 0.55;
+  c.mat.emissive.copy(state === 'pass' ? board.col : lin(CSTATE[state]));
+  c.mat.emissiveIntensity = state === 'idle' ? 0.7 : state === 'run' ? 2.2 : 0.95;
+  c.glow.material.color.copy(c.mat.emissive);
+  c.glow.material.opacity = state === 'idle' ? 0 : state === 'run' ? 0.85 : 0.4;
 }
 W.resetTests = function () { cancelAll(); crystals.forEach((c, i) => setCrystal(i, 'idle')); if (pip) setMood(pip, 'idle'); if (lock) lock.visible = true; };
 function fireBeam(to) {
@@ -565,20 +712,40 @@ W.playTests = async function (states, opts) {
 };
 W.stop = cancelAll;
 
-// ---------------------------------------------------------------- camera, input, loop
+// ---------------------------------------------------------------- camera, lights, input, loop
 function placeCamera(dt) {
-  const s = 1 - Math.exp(-dt * 7);
+  const s = 1 - Math.exp(-dt * 7), sway = calm ? 0 : Math.sin(time * 0.21) * 0.014;       // the camera is never perfectly still
   if (mode === 'hub') {
     cam.az += (camT.az - cam.az) * s; cam.y += (camT.y - cam.y) * s; cam.dist += (camT.dist - cam.dist) * s;
-    const el = 0.3, c = Math.cos(el) * cam.dist;
-    camera.position.set(c * Math.cos(cam.az), cam.y + 0.8 + Math.sin(el) * cam.dist, c * Math.sin(cam.az));
+    const el = 0.3, c = Math.cos(el) * cam.dist, az = cam.az + sway;
+    camera.position.set(c * Math.cos(az), cam.y + 0.8 + Math.sin(el) * cam.dist, c * Math.sin(az));
     camera.lookAt(5.2 * Math.cos(cam.az), cam.y - 1.9, 5.2 * Math.sin(cam.az));
   } else {
     acam.az += (acamT.az - acam.az) * s; acam.el += (acamT.el - acam.el) * s; acam.dist += (acamT.dist - acam.dist) * s;
-    const c = Math.cos(acam.el) * acam.dist;
-    camera.position.set(atarget.x + c * Math.cos(acam.az), atarget.y + Math.sin(acam.el) * acam.dist, atarget.z + c * Math.sin(acam.az));
+    const c = Math.cos(acam.el) * acam.dist, az = acam.az + sway * 1.6;
+    camera.position.set(atarget.x + c * Math.cos(az), atarget.y + Math.sin(acam.el) * acam.dist, atarget.z + c * Math.sin(az));
     camera.lookAt(atarget);
   }
+}
+// The key light sits above the subject, to the camera's left; a cool light edges it from behind. In the hub both travel
+// with the camera, so the platform you are looking at is always well lit.
+function aimLights(dt) {
+  const az = mode === 'hub' ? cam.az : Math.PI / 2, span = mode === 'hub' ? 17 : arenaSpan;
+  if (mode === 'hub') _v.set(5.2 * Math.cos(az), cam.y, 5.2 * Math.sin(az)); else _v.copy(atarget);
+  const kx = Math.cos(az + 0.8), kz = Math.sin(az + 0.8);
+  sun.position.set(_v.x + kx * 26, _v.y + 34, _v.z + kz * 26);
+  sun.target.position.copy(_v);
+  rim.position.set(_v.x - kx * 22, _v.y + 9, _v.z - kz * 22);
+  rim.target.position.copy(_v);
+  const sc = sun.shadow.camera;
+  if (sc.right !== span) { sc.left = -span; sc.right = span; sc.top = span; sc.bottom = -span; sc.updateProjectionMatrix(); }
+  // every floor has its own colour of light
+  tint.lerp(tintT, 1 - Math.exp(-dt * 2.5));
+  rim.color.copy(COOL).lerp(tint, 0.55);
+  hemi.color.copy(SKYLIGHT).lerp(tint, 0.16);
+  dust.material.color.copy(SKYLIGHT).lerp(tint, 0.5);
+  dust.position.set(_v.x, _v.y + (calm ? 0 : Math.sin(time * 0.27) * 0.5), _v.z);
+  dust.rotation.y = time * 0.018;
 }
 function hubDist() { const a = stage.clientWidth / Math.max(1, stage.clientHeight); return Math.min(52, 27 / Math.max(0.5, Math.min(1, a * 0.85))); }
 function bindInput() {
@@ -613,7 +780,7 @@ function bindInput() {
   const up = e => {
     if (!ptrs.has(e.pointerId)) return;
     ptrs.delete(e.pointerId);
-    if (moved < 7 && mode === 'hub' && e.type === 'pointerup') {
+    if (moved < (e.pointerType === 'mouse' ? 7 : 14) && mode === 'hub' && e.type === 'pointerup') {       // a finger is never as still as a mouse
       const i = pick(e);
       if (i >= 0) { if (i === selected && cb.onOpen) cb.onOpen(i); else if (cb.onSelect) cb.onSelect(i); }
     }
@@ -635,6 +802,7 @@ W.resize = function () {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   camT.dist = hubDist();
+  sizeBloom(w, h);
 };
 let last = 0, lastTick = 0;
 function frame(now, fromTimer) {
@@ -644,6 +812,7 @@ function frame(now, fromTimer) {
   lastTick = performance.now();
   time += dt;
   stepTweens(real);          // sequences keep real time even when the browser throttles frames
+  if (!stage.clientHeight) return;                 // the view is folded away (a phone keyboard is open): nothing to draw
   stepParticles(dt);
   if (mode === 'hub') {
     idlePip(hubPip, 1, dt);
@@ -652,7 +821,7 @@ function frame(now, fromTimer) {
     beacon.rotation.y += dt * 0.5;
     if (nextNode >= 0 && nodes[nextNode] && nodes[nextNode].state === 'open') {
       const n = nodes[nextNode];
-      n.topMat.color.copy(n.col).multiplyScalar(calm ? 0.5 : 0.42 + 0.26 * Math.sin(time * 3.4));
+      n.topMat.emissive.copy(n.col).multiplyScalar(pf(calm ? 0.5 : 0.44 + 0.26 * Math.sin(time * 3.4)));
     }
     for (const n of nodes) if (n.stars.visible) n.stars.rotation.y += dt * 1.2;
   } else {
@@ -669,39 +838,101 @@ function frame(now, fromTimer) {
     if (lock && lock.visible) { lock.rotation.y += dt * 0.5; lock.rotation.x += dt * 0.23; }
   }
   placeCamera(dt);
+  aimLights(dt);
+  sky.position.copy(camera.position);
+  starsB.material.opacity = calm ? 0.8 : 0.62 + 0.3 * Math.sin(time * 1.3);
+  renderer.shadowMap.needsUpdate = true;            // once per frame; the bloom copy below reuses it
+  renderer.setRenderTarget(null);
   renderer.render(scene, camera);
+  if (q.bloom && bloom) drawBloom();
+  // "auto" quality: a few seconds of slow frames, while the page is really being watched, step the picture down a tier
+  if (qPref === 'auto' && fromTimer !== true && qName !== 'low' && now > grace && document.visibilityState === 'visible') {
+    if (real > 0.034 && real < 0.25) slow += real; else slow = Math.max(0, slow - real * 0.6);
+    if (slow > 2.4) applyQuality(qName === 'high' ? 'medium' : 'low');
+  }
 }
 W.mood = m => { if (mode === 'arena' && pip) setMood(pip, m); };
+
+// A small studio of coloured lamps that every shiny surface reflects. It is never seen directly.
+function makeEnv() {
+  const env = new T.Scene();
+  const dome = new T.Mesh(new T.SphereGeometry(40, 24, 12), new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide }));
+  paint(dome.geometry, [[-1, 0.004, 0.005, 0.014], [-0.05, 0.02, 0.03, 0.075], [0.12, 0.05, 0.07, 0.17], [1, 0.012, 0.018, 0.05]]);
+  env.add(dome);
+  const lamp = (w, h, r, g, b, x, y, z) => {
+    const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: new T.Color(r, g, b), side: T.DoubleSide }));
+    m.position.set(x, y, z); m.lookAt(0, 0, 0);
+    env.add(m);
+  };
+  lamp(26, 14, 3.0, 3.6, 4.6, 10, 26, 18);          // large cool key, above and in front
+  lamp(10, 16, 3.4, 2.3, 1.2, -30, 6, 6);           // warm panel to one side
+  lamp(34, 3, 0.5, 2.6, 2.2, 0, 3, -34);            // teal strip behind
+  lamp(8, 8, 2.4, 0.6, 1.7, 26, -8, -20);           // magenta kicker, low
+  const pm = new T.PMREMGenerator(renderer);
+  scene.environment = pm.fromScene(env, 0.035).texture;
+  pm.dispose();
+  env.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+}
+function makeSky() {
+  sky = new T.Mesh(new T.SphereGeometry(700, 32, 16), new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide, fog: false, depthWrite: false, toneMapped: false }));
+  paint(sky.geometry, [[-1, 0.002, 0.003, 0.009], [-0.12, 0.006, 0.01, 0.03], [0.04, 0.022, 0.036, 0.105], [0.3, 0.008, 0.013, 0.042], [1, 0.003, 0.005, 0.016]]);
+  sky.renderOrder = -10; sky.frustumCulled = false;
+  scene.add(sky);
+  const field = (n, size, opacity) => {
+    const sp = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, u = Math.random() * 1.5 - 0.5, r = Math.sqrt(Math.max(0, 1 - u * u)), d = 260 + Math.random() * 180;
+      sp[i * 3] = Math.cos(a) * r * d; sp[i * 3 + 1] = u * d + 40; sp[i * 3 + 2] = Math.sin(a) * r * d;
+    }
+    const sg = new T.BufferGeometry();
+    sg.setAttribute('position', new T.BufferAttribute(sp, 3));
+    const p = new T.Points(sg, new T.PointsMaterial({ color: lin(0xcfdcff), size, sizeAttenuation: false, transparent: true, opacity, fog: false, depthWrite: false, toneMapped: false }));
+    p.frustumCulled = false;
+    scene.add(p);
+    return p;
+  };
+  field(coarse ? 700 : 1300, 1.4, 0.7);
+  starsB = field(90, 2.6, 0.8);                     // a few bright ones that twinkle
+  [[0x2b4fd6, -190, 60, -160, 330], [0x7a3fd0, 210, 120, -90, 300], [0x1fa89a, 40, -40, 260, 280]].forEach(n => { const s = glow(n[0], n[4], 0.16); s.position.set(n[1], n[2], n[3]); scene.add(s); });
+  // dust in the air around whatever the camera is looking at
+  const n = coarse ? 70 : 140, dp = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { dp[i * 3] = (Math.random() - 0.5) * 30; dp[i * 3 + 1] = (Math.random() - 0.5) * 15; dp[i * 3 + 2] = (Math.random() - 0.5) * 30; }
+  const dg = new T.BufferGeometry();
+  dg.setAttribute('position', new T.BufferAttribute(dp, 3));
+  dust = new T.Points(dg, new T.PointsMaterial({ size: 0.1, map: glowTex, color: lin(0x9fb4ff), transparent: true, opacity: 0.5, depthWrite: false, blending: T.AdditiveBlending, fog: false, toneMapped: false }));
+  dust.frustumCulled = false;
+  scene.add(dust);
+}
 W.init = function (stageEl, canvasEl, data, callbacks) {
   stage = stageEl; canvas = canvasEl; levels = data.levels; zones = data.zones; cb = callbacks || {};
-  try { renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }); }
+  try { renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', stencil: false }); }
   catch (e) { W.ok = false; return Promise.resolve(false); }
-  renderer.setPixelRatio(Math.min(root.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = T.sRGBEncoding;
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.shadowMap.type = T.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
   scene = new T.Scene();
-  scene.background = new T.Color(0x070b1a);
-  scene.fog = new T.FogExp2(0x070b1a, 0.012);
+  scene.background = lin(0x04060f);
+  scene.fog = new T.FogExp2(lin(0x070b1a), 0.012);
   camera = new T.PerspectiveCamera(42, 1, 0.3, 900);
-  scene.add(new T.HemisphereLight(0x9fb4ff, 0x0b0f24, 0.85));
-  const sun = new T.DirectionalLight(0xffffff, 0.85);
-  sun.position.set(14, 30, 20);
-  scene.add(sun);
+  hemi = new T.HemisphereLight(SKYLIGHT.clone(), lin(0x070a1c), 0.38);
+  sun = new T.DirectionalLight(lin(0xfff0dc), 1.55);
+  sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.035;
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 150;
+  rim = new T.DirectionalLight(COOL.clone(), 1.15);
+  scene.add(hemi, sun, sun.target, rim, rim.target);
   glowTex = makeGlow();
-  const sp = new Float32Array(1100 * 3);
-  for (let i = 0; i < 1100; i++) {
-    const a = Math.random() * TAU, u = Math.random() * 1.5 - 0.5, r = Math.sqrt(Math.max(0, 1 - u * u)), d = 260 + Math.random() * 180;
-    sp[i * 3] = Math.cos(a) * r * d; sp[i * 3 + 1] = u * d + 40; sp[i * 3 + 2] = Math.sin(a) * r * d;
-  }
-  const sg = new T.BufferGeometry();
-  sg.setAttribute('position', new T.BufferAttribute(sp, 3));
-  const starsP = new T.Points(sg, new T.PointsMaterial({ color: 0xbfd0ff, size: 1.5, sizeAttenuation: false, transparent: true, opacity: 0.8, fog: false, depthWrite: false }));
-  starsP.frustumCulled = false;
-  scene.add(starsP);
-  [[0x2b4fd6, -190, 60, -160, 330], [0x7a3fd0, 210, 120, -90, 300], [0x1fa89a, 40, -40, 260, 280]].forEach(n => { const s = glow(n[0], n[4], 0.16); s.position.set(n[1], n[2], n[3]); scene.add(s); });
+  gridTex = makeGrid();
+  try { makeEnv(); } catch (e) { /* no reflections on this device; the lights still do their work */ }
+  makeSky();
   makeParticles();
-  const fonts = document.fonts && document.fonts.load ? Promise.all([document.fonts.load("700 84px 'Chakra Petch'"), document.fonts.load("600 50px 'Chakra Petch'")]).catch(() => null) : Promise.resolve();
+  try { bloom = makeBloom(); } catch (e) { bloom = null; }
+  const fonts = document.fonts && document.fonts.load ? Promise.all([document.fonts.load("700 92px 'Barlow Condensed'"), document.fonts.load("600 56px 'Barlow Condensed'")]).catch(() => null) : Promise.resolve();
   return Promise.race([fonts, new Promise(r => setTimeout(r, 1500))]).then(() => {
     buildHub();
     bindInput();
+    applyQuality(qPref === 'auto' ? autoTier() : qPref);
     new ResizeObserver(W.resize).observe(stage);
     W.resize();
     cam.dist = camT.dist;

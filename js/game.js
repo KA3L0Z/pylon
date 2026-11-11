@@ -1,24 +1,25 @@
-/* Pylon game logic: progress, the tower hub UI, the level panel, running code, the step-by-step tracer,
-   the scratchpad, the AI mentor, music and sound, streaks and badges, saving. */
+/* Pylon game logic: progress, the tower hub, the level panel, running code, the step-by-step tracer and its picture of
+   the data, live error checks, the scratchpad, daily reviews, mock interviews, the AI mentor, sound, badges, saving. */
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clip = (s, n) => s.length > n ? s.slice(0, n) + '\n… (cut)' : s;
 const num = n => Number(n).toLocaleString('en-US');
+const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 const Runner = window.PylonRunner, RealWorld = window.PylonWorld || { ok: false };
 // Every call to the 3D world goes through this, so the game still works where WebGL does not.
 const World = new Proxy({}, { get: (_, k) => (RealWorld.ok && typeof RealWorld[k] === 'function') ? RealWorld[k] : (/^play/.test(k) ? () => Promise.resolve(true) : () => undefined) });
 
 const ZONES = [
-  { n: 1, name: 'Boot Deck', color: '#3ad6c5', title: 'Trainee', blurb: 'Wake PIP up. Calls, loops, decisions and your own functions.' },
-  { n: 2, name: 'Logic Gardens', color: '#ffb347', title: 'Intern', blurb: 'Values, text and decisions. Your first real functions.' },
-  { n: 3, name: 'Data Vaults', color: '#a58bff', title: 'Junior Engineer', blurb: 'Lists, dictionaries, sets and the idioms that keep Python short.' },
-  { n: 4, name: 'Pattern Forge', color: '#ff7a6b', title: 'Engineer', blurb: 'The patterns behind most interview questions.' },
-  { n: 5, name: 'Structure Works', color: '#5fb0ff', title: 'Senior Engineer', blurb: 'Classes, linked lists, trees, graphs, heaps and dynamic programming.' },
-  { n: 6, name: 'Summit Core', color: '#ffe08a', title: 'Staff Engineer', blurb: 'Generators, decorators and the hard classics.' },
+  { n: 1, name: 'Boot Deck', color: '#2ee6c8', title: 'Trainee', blurb: 'Wake PIP up. Calls, loops, decisions and your own functions.' },
+  { n: 2, name: 'Logic Gardens', color: '#ffb545', title: 'Intern', blurb: 'Values, text and decisions. Your first real functions.' },
+  { n: 3, name: 'Data Vaults', color: '#a98bff', title: 'Junior Engineer', blurb: 'Lists, dictionaries, sets and the idioms that keep Python short.' },
+  { n: 4, name: 'Pattern Forge', color: '#ff6fa8', title: 'Engineer', blurb: 'The patterns behind most interview questions.' },
+  { n: 5, name: 'Structure Works', color: '#58b4ff', title: 'Senior Engineer', blurb: 'Classes, linked lists, trees, graphs, heaps and dynamic programming.' },
+  { n: 6, name: 'Summit Core', color: '#ffe37a', title: 'Staff Engineer', blurb: 'Generators, decorators and the hard classics.' },
 ];
-const LAB = { n: 0, name: 'Scratchpad', color: '#4fe3d0' };
+const LAB = { n: 0, name: 'Scratchpad', color: '#2ee6c8' };
 const RANKS = ['Amateur'].concat(ZONES.map(z => z.title));
 const LEVELS = (window.PYLON_LEVELS || []).slice().sort((a, b) => a.zone - b.zone || a.order - b.order);
 const INDEX = {};
@@ -31,7 +32,7 @@ const SANDBOX = { id: 'sandbox', zone: 0, order: 0, kind: 'sandbox', title: 'Scr
   lesson: '<p>This is your lab bench. Write any Python, run it, and see what it prints. Nothing here is graded and nothing can break.</p>' +
     '<p>Good uses for it:</p><ul><li>Try a line from a lesson with your own values.</li><li>Check what a method really returns before you rely on it.</li>' +
     '<li>Paste a function from a level and call it with inputs of your own.</li></ul>' +
-    '<p><b>Step through</b> runs your code one line at a time and shows every variable as it changes. When a result surprises you, that is the fastest way to find out why.</p>' +
+    '<p><b>Step through</b> runs your code one line at a time and draws your lists and dictionaries as they change. When a result surprises you, that is the fastest way to find out why.</p>' +
     '<p>The helpers from the tower work here too: <code>linked([1, 2, 3])</code> builds a linked list and <code>tree([1, 2, 3])</code> builds a binary tree.</p>',
   task: '<p>Write any Python and press <b>Run</b>. Use <code>print(...)</code> to see values.</p>',
   starter: '# Try anything here. Nothing is graded.\nnames = ["Ada", "Grace", "Linus"]\nfor i, name in enumerate(names, start=1):\n    print(i, name.upper())\n\nsquares = [n * n for n in range(6)]\nprint(squares, sum(squares))\n',
@@ -40,13 +41,19 @@ const SANDBOX = { id: 'sandbox', zone: 0, order: 0, kind: 'sandbox', title: 'Scr
 // ---------------------------------------------------------------- state and saving
 const SAVE_KEY = 'pylon.save.v1';
 let S = { v: 1, levels: {}, sound: true, music: true, musicVol: 0.45, sfxVol: 0.8, unlockAll: false, intro: false, last: null, open: null, speed: 1,
-  board: false, days: [], badges: {}, counters: {}, t: 0 };
+  board: false, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], ac: true, gfx: 'auto', t: 0 };
+function tidy() {
+  if (!Array.isArray(S.days)) S.days = [];
+  if (!Array.isArray(S.ivLog)) S.ivLog = [];
+  if (!S.badges || typeof S.badges !== 'object') S.badges = {};
+  if (!S.counters || typeof S.counters !== 'object') S.counters = {};
+  if (typeof S.bonus !== 'number') S.bonus = 0;
+  if (['auto', 'high', 'medium', 'low'].indexOf(S.gfx) < 0) S.gfx = 'auto';
+}
 function loadLocal() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { const d = JSON.parse(raw); if (d && d.v === 1) S = Object.assign(S, d); } }
   catch (e) { /* storage blocked: play without saving */ }
-  if (!Array.isArray(S.days)) S.days = [];
-  if (!S.badges || typeof S.badges !== 'object') S.badges = {};
-  if (!S.counters || typeof S.counters !== 'object') S.counters = {};
+  tidy();
 }
 function save() {
   S.t = Date.now();
@@ -57,14 +64,15 @@ function st(id) { return S.levels[id] || (S.levels[id] = { solved: false, stars:
 const bump = (name, by) => { S.counters[name] = (S.counters[name] || 0) + (by || 1); };
 const isSolved = i => !!(LEVELS[i] && S.levels[LEVELS[i].id] && S.levels[LEVELS[i].id].solved);
 const isUnlocked = i => i === 0 || S.unlockAll || isSolved(i - 1);
+const floorDone = n => { const ls = zoneLevels(n); return ls.length > 0 && ls.every(l => isSolved(INDEX[l.id])); };
 function totals() {
-  let xp = 0, stars = 0, solved = 0;
+  let xp = S.bonus || 0, stars = 0, solved = 0;
   for (const l of LEVELS) { const s = S.levels[l.id]; if (s && s.solved) { xp += s.xp; stars += s.stars; solved++; } }
   return { xp, stars, solved };
 }
 function rankIndex() {
   let r = 0;
-  for (const z of ZONES) { const ls = zoneLevels(z.n); if (ls.length && ls.every(l => isSolved(INDEX[l.id]))) r++; else break; }
+  for (const z of ZONES) { if (floorDone(z.n)) r++; else break; }
   return r;
 }
 function nextIndex() { for (let i = 0; i < LEVELS.length; i++) if (!isSolved(i)) return i; return -1; }
@@ -73,6 +81,9 @@ function xpFor(lv, stars) {
   return Math.round(base * (lv.boss ? 1.5 : 1) * [0, 0.4, 0.75, 1][stars]);
 }
 const dayKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const today = () => dayKey(new Date());
+const dayPlus = (n, from) => { const d = from ? new Date(from) : new Date(); d.setDate(d.getDate() + n); return dayKey(d); };
+function markDay() { const t = today(); if (S.days.indexOf(t) < 0) { S.days.push(t); S.days = S.days.sort().slice(-400); } }
 function streak() {
   const have = new Set(S.days), d = new Date();
   if (!have.has(dayKey(d))) d.setDate(d.getDate() - 1);          // today not played yet: the streak still stands
@@ -84,19 +95,24 @@ function mergeRemote(remote) {
   if (!remote || remote.v !== 1) return;
   for (const id in remote.levels || {}) {
     const r = remote.levels[id], l = st(id);
-    if ((r.t || 0) > (l.t || 0) && r.code != null) l.code = r.code;
+    if ((r.t || 0) > (l.t || 0)) { if (r.code != null) l.code = r.code; if (r.rv) l.rv = r.rv; }
+    else if (r.rv && !l.rv) l.rv = r.rv;
     l.solved = l.solved || !!r.solved; l.stars = Math.max(l.stars, r.stars || 0); l.xp = Math.max(l.xp, r.xp || 0);
     l.hints = Math.max(l.hints, r.hints || 0); l.saw = l.saw || !!r.saw; l.read = l.read || !!r.read; l.mentor = l.mentor || !!r.mentor;
-    l.lean = l.lean || !!r.lean; l.tries = Math.max(l.tries, r.tries || 0); l.t = Math.max(l.t || 0, r.t || 0);
+    l.lean = l.lean || !!r.lean; l.pred = (l.pred || 0) | (r.pred || 0); l.tries = Math.max(l.tries, r.tries || 0); l.t = Math.max(l.t || 0, r.t || 0);
   }
   if ((remote.t || 0) > (S.t || 0)) {
     S.sound = remote.sound !== false; S.music = remote.music !== false; S.unlockAll = !!remote.unlockAll; S.speed = remote.speed || 1; S.board = !!remote.board;
+    S.ac = remote.ac !== false;
     if (typeof remote.musicVol === 'number') S.musicVol = remote.musicVol;
     if (typeof remote.sfxVol === 'number') S.sfxVol = remote.sfxVol;
     if (remote.last) S.last = remote.last;
+    if (remote.rvDay) S.rvDay = remote.rvDay;
   }
   S.intro = S.intro || !!remote.intro;
+  S.bonus = Math.max(S.bonus || 0, remote.bonus || 0);
   S.days = Array.from(new Set(S.days.concat(Array.isArray(remote.days) ? remote.days : []))).sort().slice(-400);
+  if (Array.isArray(remote.ivLog) && remote.ivLog.length > S.ivLog.length) S.ivLog = remote.ivLog;
   for (const k in remote.badges || {}) if (!S.badges[k]) S.badges[k] = remote.badges[k];
   for (const k in remote.counters || {}) S.counters[k] = Math.max(S.counters[k] || 0, remote.counters[k] || 0);
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
@@ -150,6 +166,7 @@ const Cloud = (() => {
   async function leave() { lastScore = ''; try { await db.doc('scores/' + uid).delete(); } catch (e) { /* ignore */ } }
   return { init, push, board, leave, flushNow: () => { clearTimeout(timer); return flush(); }, get ready() { return ready && !dead; } };
 })();
+const online = () => !!(window.claude && typeof window.claude.use === 'function');
 
 // ---------------------------------------------------------------- sound effects and music
 const Sfx = (() => {
@@ -195,8 +212,8 @@ const Sfx = (() => {
     collect: () => { tone(880, 0, 0.09, 'sine', 0.5); tone(1320, 0.07, 0.14, 'sine', 0.45); tone(1760, 0.14, 0.18, 'sine', 0.25); },
     tick: () => tone(740, 0, 0.07, 'sine', 0.4, 990),
     trace: () => tone(600, 0, 0.035, 'triangle', 0.18),
+    pick: () => tone(980, 0, 0.03, 'triangle', 0.14),
     buzz: () => tone(150, 0, 0.16, 'sawtooth', 0.3, 110),
-    slow: () => tone(260, 0, 0.3, 'triangle', 0.3, 180),
     crash: () => { tone(180, 0, 0.22, 'sawtooth', 0.45, 60); tone(90, 0.02, 0.25, 'square', 0.25, 50); noise(0, 0.25, 0.35, 1800, 200); },
     fail: () => { tone(300, 0, 0.14, 'triangle', 0.4, 220); tone(220, 0.13, 0.22, 'triangle', 0.4, 160); },
     hint: () => { tone(587, 0, 0.1, 'sine', 0.3); tone(880, 0.09, 0.16, 'sine', 0.22); },
@@ -206,6 +223,7 @@ const Sfx = (() => {
     badge: () => { seq([784, 988, 1175, 1568], 0.06, 0.2, 'sine', 0.3); noise(0.1, 0.3, 0.06, 6000, 10000); },
     boss: () => { seq([392, 523, 659, 784, 1047, 1319], 0.09, 0.3, 'square', 0.2); noise(0, 0.5, 0.25, 200, 3000); },
     rank: () => { seq([523, 659, 784, 1047, 784, 1047, 1319], 0.11, 0.32, 'triangle', 0.45); seq([262, 330, 392], 0.22, 0.5, 'sine', 0.25); },
+    clock: () => { tone(880, 0, 0.08, 'square', 0.12); tone(880, 0.2, 0.08, 'square', 0.12); },
   };
   return {
     play(name) {
@@ -216,6 +234,8 @@ const Sfx = (() => {
     },
   };
 })();
+// A phone can answer with a short buzz as well as a sound.
+const haptic = pattern => { if (coarse && S.sound && navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) { /* not allowed here */ } } };
 // Background music: one looping track. Browsers only allow it to start after the first click or key press.
 const Music = (() => {
   const SRC = 'audio/pythonic-ambiance.mp3';
@@ -288,9 +308,10 @@ function modal(html, opts) {
   $('modal-body').innerHTML = html;
   $('modal').hidden = false;
   $('modal').className = opts.wide ? 'wide' : '';
+  $('modal-body').scrollTop = 0;          // a dialog always opens at its top
   modalClose = opts.onClose || null;
   const f = $('modal-body').querySelector('[data-focus]') || $('modal-body').querySelector('button');
-  if (f) f.focus();
+  if (f && !coarse) f.focus({ preventScroll: true });
 }
 function closeModal() { if ($('modal').hidden) return; $('modal').hidden = true; $('modal-body').innerHTML = ''; const f = modalClose; modalClose = null; if (f) f(); }
 function toast(text, kind) {
@@ -298,7 +319,7 @@ function toast(text, kind) {
   t.className = 'toast' + (kind ? ' ' + kind : '');
   t.textContent = text;
   $('toasts').appendChild(t);
-  setTimeout(() => { t.classList.add('gone'); setTimeout(() => t.remove(), 400); }, kind === 'badge' ? 4200 : 2600);
+  setTimeout(() => { t.classList.add('gone'); setTimeout(() => t.remove(), 400); }, kind === 'badge' ? 4200 : 2800);
 }
 const starsHtml = n => '<span class="stars" aria-label="' + n + ' of 3 stars">' + [0, 1, 2].map(i => '<i class="' + (i < n ? 'on' : '') + '">★</i>').join('') + '</span>';
 function chips(lv) {
@@ -308,6 +329,9 @@ function chips(lv) {
   return h;
 }
 const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.replace(/\s+\n/g, '\n').trim(); };
+const clock = ms => { const s = Math.max(0, Math.round(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+// The interface takes the colour of the floor in view.
+const setAccent = color => document.documentElement.style.setProperty('--accent', color);
 
 // ---------------------------------------------------------------- badges
 const BADGES = [
@@ -315,14 +339,18 @@ const BADGES = [
   { id: 'boot', name: 'Boot Sequence', desc: 'Bring Floor 1 back online.', test: c => c.rank >= 1 },
   { id: 'xray', name: 'X-Ray Vision', desc: 'Step through a run line by line.', test: c => c.n('traces') >= 1 },
   { id: 'lab', name: 'Lab Rat', desc: 'Run five experiments in the Scratchpad.', test: c => c.n('lab') >= 5 },
+  { id: 'oracle', name: 'Oracle', desc: 'Predict the output of 10 lesson examples.', test: c => c.n('predict') >= 10 },
   { id: 'persist', name: 'Bug Squasher', desc: 'Solve a level after five or more failed runs.', test: c => c.n('persist') >= 1 },
   { id: 'speed', name: 'Speed of Light', desc: 'Pass a speed test.', test: c => c.n('speed') >= 1 },
   { id: 'clean', name: 'Clean Hands', desc: 'Earn three stars on 10 levels.', test: c => c.three >= 10 },
   { id: 'lean', name: 'Lean Machine', desc: 'Match the model solution for efficiency on five levels.', test: c => c.lean >= 5 },
+  { id: 'memory', name: 'Long Memory', desc: 'Pass 10 reviews.', test: c => c.n('reviews') >= 10 },
   { id: 'streak3', name: 'On a Roll', desc: 'Solve levels three days in a row.', test: c => c.streak >= 3 },
   { id: 'streak7', name: 'Unstoppable', desc: 'Solve levels seven days in a row.', test: c => c.streak >= 7 },
   { id: 'boss', name: 'Boss Breaker', desc: 'Clear three floor bosses.', test: c => c.bosses >= 3 },
   { id: 'classic10', name: 'Classic Collector', desc: 'Solve 10 classic interview problems.', test: c => c.classics >= 10 },
+  { id: 'offer', name: 'Offer Letter', desc: 'Solve every problem of an on-site interview round.', test: c => c.n('ivOnsite') >= 1 },
+  { id: 'loop', name: 'Senior Loop', desc: 'Solve every problem of the senior interview loop.', test: c => c.n('ivSenior') >= 1 },
   { id: 'classicAll', name: 'The Whole Shelf', desc: 'Solve every classic interview problem in the tower.', test: c => CLASSICS > 0 && c.classics >= CLASSICS },
   { id: 'senior', name: 'Senior Engineer', desc: 'Bring Floor 5 back online.', test: c => c.rank >= 5 },
   { id: 'summit', name: 'Top of the Pylon', desc: 'Solve every level in the tower.', test: c => c.solved >= LEVELS.length },
@@ -341,22 +369,177 @@ function checkBadges(silent) {
   if (fresh) { save(); renderHud(); }
 }
 
+// ---------------------------------------------------------------- daily review (spaced repetition)
+// A solved code level comes back after 1 day, then 3, 7, 14, 30 and 60. Each time it has to be written again from the
+// starting code. Getting it right moves it one step along; "I forgot" sends it back to the start. Three a day at most.
+const RV_GAPS = [1, 3, 7, 14, 30, 60], RV_PER_DAY = 3;
+function reviewQueue() {
+  const t = today(), out = [];
+  LEVELS.forEach((l, i) => { const s = S.levels[l.id]; if (l.kind === 'code' && s && s.solved && s.rv && s.rv.due <= t) out.push(i); });
+  return out.sort((a, b) => (S.levels[LEVELS[a].id].rv.due < S.levels[LEVELS[b].id].rv.due ? -1 : 1));
+}
+const reviewsDone = () => (S.rvDay && S.rvDay.d === today() ? S.rvDay.n : 0);
+const reviewsLeft = () => Math.max(0, Math.min(reviewQueue().length, RV_PER_DAY - reviewsDone()));
+function seedReviews() {                          // levels solved before reviews existed join the queue
+  let any = false;
+  for (const l of LEVELS) { const s = S.levels[l.id]; if (l.kind === 'code' && s && s.solved && !s.rv) { s.rv = { box: 0, due: dayPlus(1, s.t || Date.now()) }; any = true; } }
+  return any;
+}
+function countReview() { const t = today(); S.rvDay = { d: t, n: (S.rvDay && S.rvDay.d === t ? S.rvDay.n : 0) + 1 }; }
+function startReview() {
+  if (!reviewsLeft()) {
+    const waiting = LEVELS.filter(l => S.levels[l.id] && S.levels[l.id].rv).length;
+    Sfx.play('modal');
+    modal('<div class="eyebrow">Daily review</div><h2>Nothing is due</h2><p>' + (reviewsDone() >= RV_PER_DAY ? 'You have done today’s three reviews. More will be waiting tomorrow.'
+      : waiting ? 'Every level you solved is resting. The next one comes back when its date arrives.' : 'Solve a code level and it will come back here tomorrow, to be written again from memory.') + '</p>' +
+      '<p class="mute">Each solved level returns after 1 day, then 3, 7, 14, 30 and 60. Writing it again from the starting code, without the lesson, is what moves it into long-term memory.</p>' +
+      '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>');
+    return;
+  }
+  enter(LEVELS[reviewQueue()[0]], { mode: 'review' });
+}
+function reviewDone(lv, ok, res) {
+  const s = st(lv.id), box = ok ? Math.min(RV_GAPS.length - 1, (s.rv ? s.rv.box : 0) + 1) : 0;
+  s.rv = { box, due: dayPlus(ok ? RV_GAPS[box] : 1) };
+  countReview();
+  if (ok) { S.bonus += 15; bump('reviews'); markDay(); }
+  save();
+  checkBadges();
+  const left = reviewsLeft(), z = zoneOf(lv);
+  let h = '<div class="done"><div class="eyebrow">Review · Floor ' + z.n + '</div><h2>' + esc(lv.title) + '</h2>';
+  if (ok) {
+    Sfx.play('star'); haptic([20, 40, 20]);
+    h += '<p class="done-why">Written again from memory. <b>+15 XP</b></p><p class="eff"><span>Next review</span> in ' + RV_GAPS[box] + (RV_GAPS[box] === 1 ? ' day' : ' days') + '.</p>';
+    if (res && res.refSteps > 0 && res.steps > 0) { const e = res.steps / res.refSteps; h += '<p class="eff"><span>Efficiency</span> ' + (e <= 1.3 ? 'As lean as the model solution.' : 'About ' + (e < 10 ? e.toFixed(1) : Math.round(e)) + ' times the steps of the model solution.') + '</p>'; }
+  } else {
+    h += '<p>No harm done. Read it once more, then it comes back tomorrow.</p><pre class="code">' + window.PylonHighlight(lv.solution.replace(/\n+$/, '')) + '</pre><div class="prose">' + lv.explain + '</div>';
+  }
+  h += '<div class="done-actions">' + (left ? '<button type="button" class="btn primary" data-focus id="rv-next">Next review (' + left + ' left)</button>' : '') +
+    '<button type="button" class="btn' + (left ? ' ghost' : ' primary') + '" id="done-tower"' + (left ? '' : ' data-focus') + '>Back to the tower</button></div></div>';
+  modal(h, { wide: !ok });
+}
+
+// ---------------------------------------------------------------- mock interviews
+// A timed set of classic problems drawn from the floors the player has reached: no lesson, no hints, no solution.
+const IV_SETS = [
+  { id: 'screen', name: 'Phone screen', mins: 20, pick: ['Easy', 'Easy'], blurb: 'Two easy problems. A warm-up before the real thing.' },
+  { id: 'onsite', name: 'On-site round', mins: 40, pick: ['Easy', 'Medium', 'Medium'], blurb: 'One easy and two medium problems, the shape of a real coding round.' },
+  { id: 'senior', name: 'Senior loop', mins: 60, pick: ['Medium', 'Medium', 'Hard'], blurb: 'Two medium problems and a hard one. The bar for the top floors.' },
+];
+const IV_XP = { Easy: 30, Medium: 60, Hard: 120 };
+let ivTimer = 0, ivWarned = false;
+const ivPool = diff => LEVELS.filter((l, i) => l.classic && l.kind === 'code' && l.difficulty === diff && isUnlocked(i));
+function ivNeeds(set) {                           // null when the set can start, otherwise what is still missing
+  const need = {};
+  for (const d of set.pick) need[d] = (need[d] || 0) + 1;
+  for (const d in need) { const have = ivPool(d).length; if (have < need[d]) return 'Opens when you have reached ' + need[d] + ' ' + d.toLowerCase() + ' classic' + (need[d] > 1 ? 's' : '') + ' in the tower. You have reached ' + have + '.'; }
+  return null;
+}
+function showInterviews() {
+  Sfx.play('modal');
+  const last = S.ivLog.slice(-3).reverse();
+  modal('<div class="eyebrow">Mock interview</div><h2>Solve it like it counts</h2>' +
+    '<p>A timed set of classic problems from the floors you have reached. There is no lesson, no hint and no solution: only the task, the editor, and Step through. The clock does not stop.</p>' +
+    '<div class="rows" style="gap:6px">' + IV_SETS.map(s => { const miss = ivNeeds(s); return '<button type="button" class="ivset" data-iv="' + s.id + '"' + (miss ? ' disabled' : '') + '><strong>' + esc(s.name) + '</strong><em>' + s.mins + ' min · ' + s.pick.length + ' problems</em><span>' + esc(miss || s.blurb) + '</span></button>'; }).join('') + '</div>' +
+    (last.length ? '<h3>Your last rounds</h3><ul class="ivlist">' + last.map(r => { const set = IV_SETS.find(s => s.id === r.set) || IV_SETS[0]; return '<li class="' + (r.solved === r.n ? 'ok' : 'bad') + '"><span class="t-mark">' + (r.solved === r.n ? '✓' : '·') + '</span><span>' + esc(set.name) + ' <small>' + r.solved + ' of ' + r.n + ' solved</small></span><small>' + esc(r.v) + '</small></li>'; }).join('') + '</ul>' : '') +
+    '<div class="done-actions"><button type="button" class="btn ghost" data-focus id="menu-close">Not now</button></div>', { wide: true });
+}
+function startInterview(id) {
+  const set = IV_SETS.find(s => s.id === id);
+  if (!set || ivNeeds(set)) return;
+  const used = new Set(), ids = [];
+  for (const d of set.pick) { const pool = ivPool(d).filter(l => !used.has(l.id)), l = pool[Math.floor(Math.random() * pool.length)]; used.add(l.id); ids.push(l.id); }
+  S.iv = { set: set.id, ids, codes: {}, res: {}, t0: Date.now(), limit: set.mins * 60000, at: 0 };
+  save();
+  enterInterview(0);
+}
+function enterInterview(k) {
+  const iv = S.iv;
+  if (!iv) return;
+  keepCode();
+  iv.at = Math.max(0, Math.min(iv.ids.length - 1, k));
+  enter(LEVELS[INDEX[iv.ids[iv.at]]], { mode: 'interview' });
+  clearInterval(ivTimer);
+  ivWarned = false;
+  ivTimer = setInterval(tickInterview, 500);
+  tickInterview();
+}
+function renderIvBar() {
+  const iv = S.iv, bar = $('iv-bar');
+  bar.hidden = !(iv && play.mode === 'interview');
+  if (bar.hidden) return;
+  bar.innerHTML = '<span class="iv-clock" id="iv-clock" role="timer"></span><span class="iv-pills">' + iv.ids.map((id, k) => { const ok = iv.res[id] && iv.res[id].ok; return '<button type="button" class="iv-pill' + (k === iv.at ? ' on' : '') + (ok ? ' ok' : '') + '" data-ivgo="' + k + '" aria-label="Problem ' + (k + 1) + (ok ? ', solved' : '') + '">' + (ok ? '✓ ' : '') + (k + 1) + '</button>'; }).join('') +
+    '</span><button type="button" class="btn ghost" id="iv-finish">Finish</button>';
+}
+function tickInterview() {
+  const iv = S.iv;
+  if (!iv || play.mode !== 'interview') { clearInterval(ivTimer); return; }
+  const left = iv.t0 + iv.limit - Date.now(), c = $('iv-clock');
+  if (c) { c.textContent = clock(left); c.classList.toggle('low', left < 120000); }
+  if (left < 120000 && !ivWarned) { ivWarned = true; Sfx.play('clock'); toast('Two minutes left.'); }
+  if (left <= 0) finishInterview(true);
+}
+function ivAfterRun(lv, res) {
+  const iv = S.iv;
+  if (!iv) return;
+  const r = iv.res[lv.id] || (iv.res[lv.id] = { ok: false, tries: 0 });
+  r.tries++;
+  if (res.ok && !r.ok) { r.ok = true; r.at = Date.now() - iv.t0; r.eff = res.refSteps > 0 ? res.steps / res.refSteps : null; haptic([20, 40, 20]); }
+  save();
+  renderIvBar(); tickInterview();
+  if (!res.ok) { haptic(60); return; }
+  const next = iv.ids.findIndex(id => !(iv.res[id] && iv.res[id].ok));
+  if (next < 0) { setTimeout(() => { if (S.iv === iv) finishInterview(false); }, 1100); return; }
+  toast('Problem ' + (iv.at + 1) + ' solved. On to problem ' + (next + 1) + '.');
+  setTimeout(() => { if (S.iv === iv && play.mode === 'interview' && cur === lv) enterInterview(next); }, 1500);
+}
+function finishInterview(timeUp) {
+  const iv = S.iv;
+  if (!iv) return;
+  clearInterval(ivTimer);
+  keepCode();
+  const set = IV_SETS.find(s => s.id === iv.set) || IV_SETS[0], n = iv.ids.length;
+  const rows = iv.ids.map(id => ({ lv: LEVELS[INDEX[id]], r: iv.res[id] || { ok: false, tries: 0 } }));
+  const solved = rows.filter(x => x.r.ok).length, tries = rows.reduce((a, x) => a + x.r.tries, 0);
+  const v = solved === n ? (tries <= n + 2 ? ['Strong hire', 'good'] : ['Hire', 'good']) : solved >= n - 1 && solved > 0 ? ['Leaning hire', 'mid'] : ['No hire yet', 'bad'];
+  const xp = Math.round(rows.reduce((a, x) => a + (x.r.ok ? IV_XP[x.lv.difficulty] || 30 : 0), 0) * (solved === n ? 1.5 : 1));
+  S.bonus += xp;
+  S.ivLog.push({ set: set.id, solved, n, v: v[0], t: Date.now() });
+  S.ivLog = S.ivLog.slice(-12);
+  if (solved === n) { bump(set.id === 'senior' ? 'ivSenior' : set.id === 'onsite' ? 'ivOnsite' : 'ivScreen'); markDay(); }
+  S.iv = null;
+  save();
+  Sfx.play(solved === n ? 'rank' : solved ? 'star' : 'fail');
+  const miss = rows.find(x => !x.r.ok);
+  modal('<div class="eyebrow">' + esc(set.name) + (timeUp ? ' · time is up' : '') + '</div><div class="verdict-big ' + v[1] + '">' + v[0] + '</div>' +
+    '<p>' + solved + ' of ' + n + ' problems solved' + (xp ? '. <b style="color:var(--amber)">+' + xp + ' XP</b>' : '.') + '</p><ul class="ivlist">' + rows.map(x =>
+      '<li class="' + (x.r.ok ? 'ok' : 'bad') + '"><span class="t-mark">' + (x.r.ok ? '✓' : '✗') + '</span><span>' + esc(x.lv.title) + ' <small>' + esc(x.lv.classic) + ' · ' + esc(x.lv.difficulty) + '</small></span><small>' +
+      (x.r.ok ? 'at ' + clock(x.r.at) + ' · ' + x.r.tries + (x.r.tries === 1 ? ' run' : ' runs') + (x.r.eff ? ' · ' + (x.r.eff <= 1.3 ? 'lean' : (x.r.eff < 10 ? x.r.eff.toFixed(1) : Math.round(x.r.eff)) + '× steps') : '') : x.r.tries ? x.r.tries + (x.r.tries === 1 ? ' run' : ' runs') : 'not attempted') + '</small></li>').join('') + '</ul>' +
+    (miss ? '<p class="mute">The lessons for the problems you missed are in the tower. Study one, then try another round.</p>' : '<p class="mute">Every problem solved under the clock, with no help. That is the real skill.</p>') +
+    '<div class="done-actions"><button type="button" class="btn primary" data-focus id="iv-close">Back to the tower</button>' + (miss ? '<button type="button" class="btn" data-go="' + INDEX[miss.lv.id] + '">Study “' + esc(miss.lv.title) + '”</button>' : '') + '</div>',
+  { wide: true, onClose: () => { if (mode === 'level' && play.mode === 'interview') closeLevel(); checkBadges(); } });
+}
+
 // ---------------------------------------------------------------- hub
 let mode = 'hub', hubSel = 0, cur = null, editor = null, busy = false, animating = false, lastRes = null;
+// What the level panel is being used for: a normal level, a spaced review of a solved one, or a timed interview.
+let play = { mode: 'normal' };
 const progressList = () => LEVELS.map((l, i) => ({ state: isSolved(i) ? 'solved' : isUnlocked(i) ? 'open' : 'locked', stars: (S.levels[l.id] && S.levels[l.id].stars) || 0 }));
 function refreshProgress() {
   World.setProgress(progressList(), nextIndex());
   renderHud(); renderFloors(); renderCard();
 }
 function renderHud() {
-  const t = totals(), sk = streak(), earned = Object.keys(S.badges).length;
+  const t = totals(), sk = streak(), earned = Object.keys(S.badges).length, due = reviewsLeft();
   $('rank').textContent = RANKS[rankIndex()];
+  $('stat-signal').textContent = Math.round(100 * t.solved / Math.max(1, LEVELS.length)) + '%';
+  $('signal-bars').innerHTML = ZONES.map(z => '<u class="' + (floorDone(z.n) ? 'on' : '') + '" style="--zc:' + z.color + '"></u>').join('');
   $('stat-stars').textContent = t.stars + ' / ' + LEVELS.length * 3;
-  $('stat-xp').textContent = num(t.xp) + ' XP';
-  $('stat-streak').hidden = sk < 1;
-  $('stat-streak').textContent = sk + '-day streak';
+  $('stat-xp').textContent = num(t.xp);
+  $('streak-box').hidden = sk < 1;
+  $('stat-streak').textContent = sk + (sk === 1 ? ' day' : ' days');
+  $('btn-review').innerHTML = due ? 'Review <b>' + due + '</b>' : 'Review';
   $('btn-badges').textContent = 'Badges ' + earned + '/' + BADGES.length;
-  $('btn-music').textContent = S.music ? 'Music on' : 'Music off';
   $('btn-music').setAttribute('aria-pressed', S.music ? 'true' : 'false');
 }
 function renderFloors() {
@@ -365,7 +548,7 @@ function renderFloors() {
     const ls = zoneLevels(z.n);
     if (!ls.length) return '';
     const open = isUnlocked(INDEX[ls[0].id]);
-    return '<button type="button" class="floor' + (z.n === curZone ? ' on' : '') + (open ? '' : ' locked') + '" data-zone="' + z.n + '" style="--zc:' + z.color + '">' +
+    return '<button type="button" class="floor' + (z.n === curZone ? ' on' : '') + (open ? '' : ' locked') + '" data-zone="' + z.n + '" style="--zc:' + z.color + '" aria-label="Floor ' + z.n + ', ' + esc(z.name) + '">' +
       '<span class="f-n">' + z.n + '</span><span class="f-name">' + esc(z.name) + '</span><span class="f-dots" aria-hidden="true">' +
       ls.map(l => '<i class="' + (isSolved(INDEX[l.id]) ? 'd' : '') + '"></i>').join('') + '</span></button>';
   }).join('');
@@ -376,17 +559,18 @@ function renderCard() {
   const z = zoneOf(lv), s = S.levels[lv.id], solved = isSolved(hubSel), open = isUnlocked(hubSel);
   let action;
   if (!open) action = '<p class="locked">Locked. Finish “' + esc(LEVELS[hubSel - 1].title) + '” first.</p>';
-  else action = '<button type="button" class="btn primary" id="card-enter">' + (solved ? 'Play again' : s && s.tries ? 'Continue' : 'Enter level') + '</button>';
+  else action = '<button type="button" class="btn primary" id="card-enter">' + (solved ? 'Play again' : s && s.tries ? 'Continue' : 'Enter level') + '</button>' + (solved ? starsHtml(s.stars) + '<span class="chip xp">' + s.xp + ' XP</span>' : '');
   $('card').innerHTML =
     '<button type="button" class="nav" id="card-prev" aria-label="Previous level"' + (hubSel === 0 ? ' disabled' : '') + '>‹</button>' +
-    '<div class="card-main"><div class="eyebrow" style="color:' + z.color + '">Floor ' + z.n + ' · ' + esc(z.name) + ' · Level ' + lv.order + ' of ' + zoneLevels(z.n).length + '</div>' +
-    '<h2>' + esc(lv.title) + '</h2><p class="concept">' + esc(lv.concept) + '</p><div class="chips">' + chips(lv) + (solved ? starsHtml(s.stars) + '<span class="chip xp">' + s.xp + ' XP</span>' : '') + '</div>' + action + '</div>' +
+    '<div class="card-main"><div class="eyebrow">Floor ' + z.n + ' · ' + esc(z.name) + ' · Level ' + lv.order + ' of ' + zoneLevels(z.n).length + '</div>' +
+    '<h2>' + esc(lv.title) + '</h2><p class="concept">' + esc(lv.concept) + '</p><div class="chips">' + chips(lv) + '</div><div class="card-foot">' + action + '</div></div>' +
     '<button type="button" class="nav" id="card-next" aria-label="Next level"' + (hubSel >= LEVELS.length - 1 ? ' disabled' : '') + '>›</button>';
 }
 function selectLevel(i, instant) {
   if (i < 0 || i >= LEVELS.length) return;
   hubSel = i;
   S.last = LEVELS[i].id;
+  if (mode === 'hub') setAccent(zoneOf(LEVELS[i]).color);
   World.select(i, !!instant);
   renderFloors(); renderCard();
 }
@@ -394,28 +578,46 @@ function selectLevel(i, instant) {
 // ---------------------------------------------------------------- level view
 function setMode(m) {
   mode = m;
-  $('app').className = 'mode-' + m;
+  $('app').className = 'mode-' + m + ($('app').classList.contains('kb') ? ' kb' : '');
   $('panel').hidden = m !== 'level';
-  $('hud').hidden = $('floors').hidden = $('card').hidden = m !== 'hub';
+  $('hud').hidden = $('dock').hidden = m !== 'hub';
   World.resize();
   requestAnimationFrame(() => World.resize());
   Music.apply();
 }
-// Colour the Python inside lesson and task text, remembering the plain source for the "run" buttons.
+// Colour the Python inside lesson and task text, remembering the plain source for the examples.
 function hl(el) { el.querySelectorAll('pre code').forEach(c => { c.parentNode.dataset.src = c.textContent; c.innerHTML = window.PylonHighlight(c.textContent); }); }
-// Lesson examples that print something get a button that really runs them.
-function addExampleButtons(root) {
+const sameText = (a, b) => { const n = t => t.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')).join('\n').trim(); return n(a) === n(b); };
+// A lesson example that prints something becomes a small exercise: say what it prints, then check.
+function addExamples(root, lv) {
+  let k = 0;
   root.querySelectorAll('pre').forEach(pre => {
     const code = pre.dataset.src;
     if (!code || code.indexOf('print(') < 0) return;
     let probe;
     try { probe = Runner.runFree(code, 300000); } catch (e) { return; }
-    if (!probe.ok || !probe.output.trim()) return;
-    const b = document.createElement('button'), outEl = document.createElement('pre');
-    b.type = 'button'; b.className = 'btn ex-run'; b.textContent = 'Run this example';
-    outEl.className = 'ex-out'; outEl.hidden = true;
-    b.addEventListener('click', () => { outEl.hidden = false; outEl.textContent = probe.output.replace(/\n$/, ''); b.textContent = 'Output'; b.disabled = true; Sfx.play('tick'); });
-    pre.after(b, outEl);
+    const want = probe.ok ? probe.output.replace(/\s+$/, '') : '', lines = want.split('\n').length;
+    if (!want || lines > 6) return;
+    const idx = k++, s = st(lv.id), bit = 1 << idx, box = document.createElement('div'), id = 'pd-' + idx;
+    box.className = 'predict';
+    box.innerHTML = '<label for="' + id + '">What will this print?</label>' +
+      (lines > 1 ? '<textarea id="' + id + '" rows="' + lines + '" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>' : '<input id="' + id + '" type="text" spellcheck="false" autocapitalize="off" autocomplete="off">') +
+      '<button type="button" class="btn" data-pd="check">Check</button><button type="button" class="btn ghost" data-pd="show">Show</button><div class="verdict" hidden></div><pre hidden></pre>';
+    const field = box.querySelector('#' + id), verdict = box.querySelector('.verdict'), outEl = box.querySelector('pre');
+    const reveal = (text, cls) => { verdict.hidden = false; verdict.className = 'verdict ' + cls; verdict.textContent = text; outEl.hidden = false; outEl.textContent = want; field.disabled = true; box.querySelectorAll('button').forEach(b => { b.disabled = true; }); };
+    const check = () => {
+      if (!field.value.trim()) { field.focus(); return; }
+      if (sameText(field.value, want)) {
+        const first = !((s.pred || 0) & bit);
+        if (first) { s.pred = (s.pred || 0) | bit; S.bonus += 5; bump('predict'); save(); renderHud(); checkBadges(); }
+        Sfx.play('tick');
+        reveal('Correct.' + (first ? ' +5 XP' : ''), 'ok');
+      } else { Sfx.play('buzz'); verdict.hidden = false; verdict.className = 'verdict bad'; verdict.textContent = 'Not that. Trace the code line by line, or press Show.'; }
+    };
+    box.addEventListener('click', e => { const b = e.target.closest('[data-pd]'); if (!b) return; if (b.dataset.pd === 'check') check(); else reveal('This is what it prints.', 'mute'); });
+    if (lines === 1) field.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); check(); } });
+    if ((s.pred || 0) & bit) reveal('You predicted this one.', 'ok');
+    pre.after(box);
   });
 }
 let shownMap = 0;
@@ -431,25 +633,39 @@ function openLevel(i) {
   hubSel = i;
   enter(LEVELS[i]);
 }
-function enter(lv) {
-  closeModal();
-  closeTrace();
+// The names a level adds to the completion list.
+const NODE_WORDS = [{ label: 'ListNode', insert: 'ListNode(|)', kind: 'class', sig: 'ListNode(val, next=None)', doc: 'One node of a linked list' }, { label: 'TreeNode', insert: 'TreeNode(|)', kind: 'class', sig: 'TreeNode(val, left=None, right=None)', doc: 'One node of a binary tree' }];
+const LAB_WORDS = NODE_WORDS.concat([{ label: 'linked', insert: 'linked(|)', kind: 'fn', sig: 'linked([1, 2, 3])', doc: 'Builds a linked list from a list' }, { label: 'tree', insert: 'tree(|)', kind: 'fn', sig: 'tree([1, 2, 3])', doc: 'Builds a binary tree, level by level' }]);
+function keepCode() {                             // put what is in the editor where this kind of play keeps it
+  if (!cur || !editor) return;
+  if (play.mode === 'normal') { const s = st(cur.id); s.code = editor.value; s.t = Date.now(); }
+  else if (play.mode === 'interview' && S.iv) S.iv.codes[cur.id] = editor.value;
+}
+function enter(lv, opts) {
+  opts = opts || {};
+  closeModal(); closeTrace(); Mentor.stop(); clearNote();
   cur = lv;
   lastRes = null;
-  const s = st(cur.id), z = zoneOf(cur), lab = cur.kind === 'sandbox';
-  S.open = cur.id;
-  if (!lab) S.last = cur.id;
+  play = { mode: opts.mode || 'normal' };
+  const s = st(cur.id), z = zoneOf(cur), lab = cur.kind === 'sandbox', normal = play.mode === 'normal', iv = play.mode === 'interview' ? S.iv : null;
+  if (normal) { S.open = cur.id; if (!lab) S.last = cur.id; } else S.open = null;
   Sfx.play('open');
+  setAccent(z.color);
   setMode('level');
-  $('p-eyebrow').textContent = lab ? 'Scratchpad · ' + cur.concept : 'Floor ' + z.n + ' · Level ' + cur.order + ' · ' + cur.concept;
-  $('p-eyebrow').style.color = z.color;
+  $('p-eyebrow').textContent = lab ? 'Scratchpad · ' + cur.concept : play.mode === 'review' ? 'Review · Floor ' + z.n + ' · ' + cur.concept
+    : iv ? 'Interview · problem ' + (iv.at + 1) + ' of ' + iv.ids.length + ' · ' + cur.difficulty : 'Floor ' + z.n + ' · Level ' + cur.order + ' · ' + cur.concept;
   $('p-name').textContent = cur.title;
+  $('btn-back').textContent = iv ? 'End' : '‹ Tower';
+  document.querySelector('.tabs').hidden = !normal;
   $('tab-btn-lesson').textContent = lab ? 'About' : 'Lesson';
   $('tab-btn-solution').hidden = lab;
-  $('tab-lesson').innerHTML = '<div class="chips">' + chips(cur) + '</div>' + cur.lesson + (lab ? '' : '<div class="taskcard"><h3>Your task</h3>' + cur.task + '</div>') + '<button type="button" class="btn primary" id="go-code">Open the editor</button>';
-  $('task-body').innerHTML = cur.task;
-  hl($('tab-lesson')); hl($('task-body'));
-  if (cur.kind === 'code') addExampleButtons($('tab-lesson'));
+  if (normal) {
+    $('tab-lesson').innerHTML = '<div class="chips">' + chips(cur) + '</div>' + cur.lesson + (lab ? '' : '<div class="taskcard"><h3>Your task</h3>' + cur.task + '</div>') + '<button type="button" class="btn primary" id="go-code">Open the editor</button>';
+    hl($('tab-lesson'));
+    if (cur.kind === 'code') addExamples($('tab-lesson'), cur);
+  } else $('tab-lesson').innerHTML = '';
+  $('task-body').innerHTML = cur.task + (iv && cur.classic ? '<p class="mute">Known as: ' + esc(cur.classic) + '</p>' : '');
+  hl($('task-body'));
   $('taskbox').open = true;
   $('taskbox').hidden = lab;
   const cmds = $('cmds');
@@ -457,15 +673,18 @@ function enter(lv) {
   cmds.innerHTML = cur.kind === 'robot' ? '<span class="cmds-label">PIP understands</span>' + cur.commands.map(c => '<button type="button" class="cmd" data-cmd="' + esc(c) + '">' + esc(c) + '</button>').join('') : '';
   $('robot-ctl').hidden = cur.kind !== 'robot';
   $('btn-trace').hidden = cur.kind === 'robot';
-  $('btn-hint').hidden = lab;
-  $('btn-mentor').hidden = !Mentor.ready;
-  editor.set(s.code != null ? s.code : cur.starter);
+  $('btn-hint').hidden = lab || !normal;
+  $('btn-mentor').hidden = !Mentor.ready || !normal;
+  $('btn-forgot').hidden = play.mode !== 'review';
+  editor.set(normal ? (s.code != null ? s.code : cur.starter) : iv && iv.codes[cur.id] != null ? iv.codes[cur.id] : cur.starter);
+  editor.setWords(cur.kind === 'robot' ? window.PylonComplete.robotWords(cur.commands) : lab ? LAB_WORDS : cur.zone >= 5 ? NODE_WORDS : []);
   $('results').innerHTML = '';
   $('mentor').hidden = true;
   $('stage-note').hidden = true;
   setStatus('');
+  renderIvBar();
   renderHints(); renderSolution(); renderPanelStars(); updateLineCount();
-  showTab(lab || s.read || s.solved || s.tries ? 'code' : 'lesson');
+  showTab(!normal || lab || s.read || s.solved || s.tries ? 'code' : 'lesson');
   buildArena();
   save();
 }
@@ -473,14 +692,21 @@ function closeLevel(celebrate) {
   World.stop();
   Mentor.stop();
   closeTrace();
-  if (cur && editor) { const s = st(cur.id); s.code = editor.value; }
+  clearNote();
+  clearInterval(ivTimer);
+  keepCode();
   busy = animating = false;
   S.open = null;
   cur = null;
+  play = { mode: 'normal' };
   $('robot-ctl').hidden = true;
   $('stage-note').hidden = true;
+  $('iv-bar').hidden = true;
+  $('app').classList.remove('watch');
+  if (editor) editor.closeComplete();
   Sfx.play('back');
   setMode('hub');
+  setAccent(zoneOf(LEVELS[hubSel] || LEVELS[0]).color);
   World.showHub(celebrate);
   World.select(hubSel, true);
   refreshProgress();
@@ -491,14 +717,14 @@ function showTab(name) {
     $('tab-' + t).hidden = t !== name;
     $('tab-btn-' + t).setAttribute('aria-selected', t === name ? 'true' : 'false');
   }
-  if (name === 'code' && cur) { const s = st(cur.id); if (!s.read) { s.read = true; save(); } }
-  if (name === 'solution' && cur && cur.kind !== 'sandbox') {
+  if (name === 'code' && cur && play.mode === 'normal') { const s = st(cur.id); if (!s.read) { s.read = true; save(); } }
+  if (name === 'solution' && cur && cur.kind !== 'sandbox' && play.mode === 'normal') {
     const s = st(cur.id);
     if (s.solved && s.stars < 3 && !s.saw) { s.saw = true; save(); renderHints(); }     // reading it ends a clean attempt
     renderSolution();
   }
 }
-function renderPanelStars() { const s = cur && S.levels[cur.id]; $('p-stars').innerHTML = s && s.solved ? starsHtml(s.stars) : ''; }
+function renderPanelStars() { const s = cur && play.mode === 'normal' && S.levels[cur.id]; $('p-stars').innerHTML = s && s.solved ? starsHtml(s.stars) : ''; }
 function setStatus(text, kind) { const e = $('run-status'); e.textContent = text; e.className = 'status' + (kind ? ' ' + kind : ''); }
 function updateLineCount() {
   if (!cur || !cur.maxLines) { $('linecount').hidden = true; return; }
@@ -507,15 +733,44 @@ function updateLineCount() {
   $('linecount').textContent = n + ' / ' + cur.maxLines + ' lines';
   $('linecount').className = 'linecount' + (n > cur.maxLines ? ' over' : '');
 }
+// The line under the editor: a syntax problem found while typing, or a reminder of what a completed name does.
+let noteTimer = 0, lintTimer = 0;
+function clearNote() { clearTimeout(noteTimer); clearTimeout(lintTimer); const n = $('ed-note'); n.hidden = true; n.className = 'ed-note'; if (editor) editor.markWarn(null); }
+function note(kind, label, html, ms) {
+  clearTimeout(noteTimer);
+  const n = $('ed-note');
+  n.className = 'ed-note ' + kind;
+  n.innerHTML = '<b>' + esc(label) + '</b><span>' + html + '</span>';
+  n.hidden = false;
+  if (ms) noteTimer = setTimeout(() => { if (n.classList.contains(kind)) n.hidden = true; }, ms);
+}
+function lintSoon() {
+  clearTimeout(lintTimer);
+  if ($('ed-note').classList.contains('warn')) { $('ed-note').hidden = true; $('ed-note').className = 'ed-note'; }
+  lintTimer = setTimeout(() => {
+    if (!cur || busy || trace || editor.completing) return;
+    let e = null;
+    try { e = Runner.syntaxError(editor.value); } catch (x) { e = null; }
+    if (!e || !e.line) return;
+    editor.markWarn(e.line);
+    note('warn', 'Line ' + e.line, esc(e.message));
+  }, 700);
+}
+function onPick(it) {                               // a completion was accepted: say what the thing does
+  Sfx.play('pick');
+  if (it.doc && (it.kind === 'fn' || it.kind === 'method' || it.kind === 'cmd' || it.kind === 'snip' || it.kind === 'value')) note('info', it.kindText || 'Help', (it.sig ? '<code>' + esc(it.sig) + '</code> ' : '') + esc(it.doc), 7000);
+}
 let codeTimer = 0;
 function onCodeChange() {
   if (!cur) return;
   updateLineCount();
   if (trace) closeTrace();
+  lintSoon();
   clearTimeout(codeTimer);
-  codeTimer = setTimeout(() => { if (cur) { const s = st(cur.id); s.code = editor.value; s.t = Date.now(); save(); } }, 700);
+  codeTimer = setTimeout(() => { if (cur) { keepCode(); save(); } }, 700);
 }
 function renderHints() {
+  if (!cur || play.mode !== 'normal') { $('hints').innerHTML = ''; return; }
   const s = st(cur.id), total = cur.hints.length, left = total - s.hints;
   $('btn-hint').textContent = left > 0 ? 'Hint (' + left + ' left)' : 'No hints left';
   $('btn-hint').disabled = left <= 0;
@@ -527,7 +782,7 @@ function renderHints() {
 }
 // Back to the starting code with every kind of help switched off again.
 function cleanAttempt() {
-  if (!cur || cur.kind === 'sandbox') return;
+  if (!cur || cur.kind === 'sandbox' || play.mode !== 'normal') return;
   const s = st(cur.id);
   s.hints = 0; s.saw = false; s.mentor = false; s.fails = 0;
   closeTrace();
@@ -539,7 +794,7 @@ function cleanAttempt() {
   toast('Clean attempt started. No hints, no mentor, no Solution tab.');
 }
 function renderSolution() {
-  if (!cur || cur.kind === 'sandbox') return;
+  if (!cur || cur.kind === 'sandbox' || play.mode !== 'normal') return;
   const s = st(cur.id);
   if (s.solved || s.saw) {
     $('tab-solution').innerHTML = '<h3>Model solution</h3><pre class="code">' + window.PylonHighlight(cur.solution.replace(/\n+$/, '')) + '</pre>' + cur.explain +
@@ -635,9 +890,13 @@ async function run() {
   if (busy) { if (animating) World.stop(); return; }
   busy = true;
   closeTrace();
-  const lv = cur, code = editor.value, s = st(lv.id);
-  s.code = code; s.tries++; s.t = Date.now();
+  clearNote();
+  editor.closeComplete();
+  const lv = cur, code = editor.value, s = st(lv.id), how = play.mode;
+  keepCode();
+  if (how === 'normal') s.tries++;
   editor.markError(null); editor.markActive(null);
+  if (coarse && document.activeElement === editor.el) editor.el.blur();          // put the phone keyboard away so the result is visible
   showTab('code');
   $('taskbox').open = false;          // make room for the results; the task is one click away
   $('btn-run').classList.add('busy');
@@ -651,6 +910,7 @@ async function run() {
   animating = true;
   $('btn-run').firstChild.textContent = 'Skip ';
   if (lv.kind === 'robot') {
+    $('app').classList.add('watch');
     if (!res.tooLong && res.runs) {
       for (const r of res.runs) {
         if (cur !== lv) break;
@@ -661,6 +921,7 @@ async function run() {
         if (!done) break;
       }
     }
+    $('app').classList.remove('watch');
   } else if (lv.kind === 'sandbox') {
     World.mood(res.ok ? 'happy' : 'sad');
     Sfx.play(res.ok ? 'tick' : 'fail');
@@ -681,10 +942,13 @@ async function run() {
   busy = false;
   if (lv.kind === 'sandbox') { setStatus(res.ok ? 'Done' : 'Error', res.ok ? 'ok' : 'bad'); save(); checkBadges(); return; }
   setStatus(res.ok ? 'Solved' : 'Not yet', res.ok ? 'ok' : 'bad');
+  if (how === 'interview') { ivAfterRun(lv, res); return; }
+  if (how === 'review') { if (res.ok) reviewDone(lv, true, res); else haptic(60); return; }
   if (!res.ok) {
     s.fails = (s.fails || 0) + 1;
+    haptic(60);
     // The first time a test fails, point at the tool that explains why.
-    if (lv.kind === 'code' && !res.error && !S.tipTrace && !S.counters.traces) { S.tipTrace = true; setTimeout(() => toast('Tip: “Step through” replays a test one line at a time and shows every variable.'), 600); }
+    if (lv.kind === 'code' && !res.error && !S.tipTrace && !S.counters.traces) { S.tipTrace = true; setTimeout(() => toast('Tip: “Step through” replays a test one line at a time and draws your data.'), 600); }
     save();
     return;
   }
@@ -699,9 +963,10 @@ function solved(lv, res) {
   let eff = null;
   if (lv.kind === 'code' && res.refSteps > 0 && res.steps > 0) { eff = res.steps / res.refSteps; if (eff <= 1.3) s.lean = true; }
   s.solved = true; s.stars = best; s.xp = Math.max(s.xp, xp); s.t = Date.now();
-  const today = dayKey(new Date());
-  if (S.days.indexOf(today) < 0) { S.days.push(today); S.days = S.days.sort().slice(-400); }
+  if (lv.kind === 'code' && !s.rv) s.rv = { box: 0, due: dayPlus(1) };              // it comes back tomorrow for its first review
+  markDay();
   save();
+  haptic([20, 40, 20]);
   renderPanelStars(); renderSolution(); renderHints();
   const after = rankIndex(), i = INDEX[lv.id];
   World.setProgress(progressList(), nextIndex());
@@ -709,15 +974,16 @@ function solved(lv, res) {
   setTimeout(() => {
     if (cur !== lv) return;
     const promoted = after > before, last = i === LEVELS.length - 1, z = zoneOf(lv);
-    const floorDone = zoneLevels(z.n).every(l => isSolved(INDEX[l.id]));
+    const done = floorDone(z.n);
     Sfx.play(promoted ? 'rank' : 'star');
-    let h = '<div class="done"><div class="eyebrow" style="color:' + z.color + '">' + (floorDone && first ? 'Floor ' + z.n + ' is back online' : lv.boss ? 'Floor boss cleared' : 'Level complete') + '</div><h2>' + esc(lv.title) + '</h2>' +
+    let h = '<div class="done"><div class="eyebrow">' + (done && first ? 'Floor ' + z.n + ' is back online' : lv.boss ? 'Floor boss cleared' : 'Level complete') + '</div><h2>' + esc(lv.title) + '</h2>' +
       '<div class="done-stars">' + starsHtml(stars) + '</div><p class="done-why">' + (stars === 3 ? 'Solved without help.' : stars === 2 ? 'Solved with a hint. A clean attempt with no help earns the third star.' : 'Solved after seeing the solution. A clean attempt with no help earns all three stars.') +
       (gain ? ' <b>+' + gain + ' XP</b>' : '') + '</p>';
     if (eff !== null) {
       h += '<p class="eff"><span>Efficiency</span> ' + (eff < 0.9 ? 'Your code does less work than the model solution.' : eff <= 1.3 ? 'Your code does about as much work as the model solution.' :
         'Your code takes about ' + (eff < 10 ? eff.toFixed(1) : Math.round(eff)) + ' times the steps of the model solution.' + (eff > 4 ? ' The Solution tab shows a leaner way.' : '')) + '</p>';
     }
+    if (first && lv.kind === 'code') h += '<p class="eff"><span>Review</span> This level comes back tomorrow, to be written again from memory.</p>';
     const sk = streak();
     if (sk >= 2) h += '<p class="eff"><span>Streak</span> ' + sk + ' days in a row.</p>';
     if (promoted) h += '<div class="promo" style="--zc:' + z.color + '"><span>Promotion</span><strong>' + esc(RANKS[after]) + '</strong>' + (ZONES[after] && zoneLevels(ZONES[after].n).length ? '<em>Floor ' + ZONES[after].n + ', ' + esc(ZONES[after].name) + ', is now open.</em>' : '<em>The whole Pylon is online. There is nothing left to fix here.</em>') + '</div>';
@@ -729,7 +995,7 @@ function solved(lv, res) {
 }
 
 // ---------------------------------------------------------------- step-by-step tracer
-let trace = null, traceI = 0, tracePlay = 0, traceTest = 0;
+let trace = null, traceI = 0, tracePlay = 0, traceTest = 0, traceRel = { rel: new Set(), grid: [] };
 function closeTrace() {
   clearInterval(tracePlay); tracePlay = 0;
   if (!trace) return;
@@ -740,17 +1006,33 @@ function closeTrace() {
   $('results').hidden = false; $('hints').hidden = false;
   if (editor) editor.markActive(null);
 }
+// Which whole-number variables are positions in which sequences? Read it off the code: nums[i] makes i a pointer into nums.
+function relations(code) {
+  const src = code.replace(/#[^\n]*/g, ''), rel = new Set(), grid = [];
+  let m;
+  const one = /([A-Za-z_][\w.]*)\s*\[([^\[\]]*)\]/g, two = /([A-Za-z_][\w.]*)\s*\[\s*([A-Za-z_]\w*)[^\[\]]*\]\s*\[\s*([A-Za-z_]\w*)[^\[\]]*\]/g;
+  const en = /for\s+([A-Za-z_]\w*)\s*,[^:\n]*?\sin\s+enumerate\(\s*([A-Za-z_][\w.]*)/g, rg = /for\s+([A-Za-z_]\w*)\s+in\s+range\(\s*(?:[^,()\n]*,\s*)?len\(\s*([A-Za-z_][\w.]*)\s*\)/g;
+  while ((m = one.exec(src))) for (const id of (m[2].match(/[A-Za-z_]\w*/g) || [])) rel.add(id + '>' + m[1]);
+  while ((m = two.exec(src))) grid.push({ g: m[1], r: m[2], c: m[3] });
+  while ((m = en.exec(src))) rel.add(m[1] + '>' + m[2]);
+  while ((m = rg.exec(src))) rel.add(m[1] + '>' + m[2]);
+  return { rel, grid };
+}
 function startTrace(testIndex) {
   if (!cur || cur.kind === 'robot' || busy) return;
   clearInterval(tracePlay); tracePlay = 0;
+  clearNote();
+  editor.closeComplete();
   if (testIndex !== undefined) traceTest = testIndex;
   else if (lastRes && lastRes.tests) { const f = lastRes.tests.find(t => !t.ok && !t.perf); traceTest = f ? f.index : 0; }
   else traceTest = 0;
   editor.markError(null);
+  if (coarse && document.activeElement === editor.el) editor.el.blur();
   let t;
   try { t = Runner.traceRun(cur, editor.value, traceTest); }
-  catch (e) { t = { ok: false, steps: [], truncated: false, label: '', result: null, expect: null, output: '', errorLine: null, error: { type: 'InternalError', message: String((e && e.message) || e) } }; }
+  catch (e) { t = { ok: false, steps: [], start: 0, truncated: false, label: '', result: null, expect: null, output: '', errorLine: null, error: { type: 'InternalError', message: String((e && e.message) || e) } }; }
   trace = t; traceI = t.start < t.steps.length ? t.start || 0 : 0;
+  traceRel = relations(editor.value);
   bump('traces');
   showTab('code');
   $('taskbox').open = false;
@@ -762,15 +1044,78 @@ function startTrace(testIndex) {
     (t.steps.length ? '<div class="tr-ctl"><button type="button" class="btn" id="tr-first" aria-label="First step">⏮</button><button type="button" class="btn" id="tr-prev" aria-label="Previous step">◀</button>' +
       '<button type="button" class="btn primary" id="tr-play">Play</button><button type="button" class="btn" id="tr-next" aria-label="Next step">▶</button><button type="button" class="btn" id="tr-last" aria-label="Last step">⏭</button>' +
       '<input type="range" id="tr-slider" min="0" max="' + (t.steps.length - 1) + '" value="0" aria-label="Step"><span id="tr-pos"></span></div>' : '') +
-    '<div id="tr-where"></div><div id="tr-vars"></div><div id="tr-end"></div><pre id="tr-out" hidden></pre>' +
+    '<div id="tr-where"></div><div class="tr-stack" id="tr-stack" hidden></div><div id="tr-viz"></div><div id="tr-vars"></div><div id="tr-end"></div><pre id="tr-out" hidden></pre>' +
     (t.truncated ? '<p class="mute">Only the first ' + t.steps.length + ' steps are recorded.</p>' : '');
   $('tab-code').classList.add('tracing');
   $('btn-trace').setAttribute('aria-pressed', 'true');
-  // Reserve room for the fullest step, so the panel does not jump while stepping.
-  $('tr-vars').style.minHeight = Math.min(8, t.steps.reduce((m, x) => Math.max(m, x.vars.length), 0)) * 27 + 'px';
   renderTraceStep();
   save();
   checkBadges();
+}
+// The picture of one step: lists as rows of cells with the variables that point into them, dictionaries as pairs,
+// linked lists as chains of nodes. Whatever changed since the step before is lit. Returns [html, names that were drawn].
+function vizHtml(s, prev) {
+  const viz = s.viz || [], drawn = new Set(), old = prev && prev.fn === s.fn && prev.depth === s.depth ? new Map((prev.viz || []).map(v => [v.n, v])) : null;
+  const nums = viz.filter(v => v.k === 'num'), numOf = n => { const x = nums.find(v => v.n === n); return x ? x.v : null; };
+  const row = (name, body, kind) => '<div class="vz"><span class="vz-name">' + esc(name) + (kind ? '<small>' + kind + '</small>' : '') + '</span>' + body + '</div>';
+  const tags = list => list.map(p => '<u>' + esc(p.n) + '</u>').join('');
+  let h = '';
+  for (const v of viz) {
+    const o = old && old.get(v.n), was = o && o.k === v.k ? o : null;
+    if (v.k === 'seq') {
+      const ptr = nums.filter(p => traceRel.rel.has(p.n + '>' + v.n) && p.v >= 0 && p.v <= v.len);
+      if (v.t === 'str' && !ptr.length) continue;              // plain text stays in the table unless something points into it
+      drawn.add(v.n);
+      if (!v.len) { h += row(v.n, '<span class="vz-more">empty</span>', v.t === 'list' ? '' : v.t); continue; }
+      let cells = '';
+      v.items.forEach((t, i) => {
+        const at = ptr.filter(p => p.v === i), chg = was && (i >= was.items.length || was.items[i] !== t);
+        cells += '<div class="vz-cell' + (at.length ? ' at' : '') + (chg ? ' chg' : '') + '"><b>' + esc(t) + '</b><i>' + i + '</i>' + tags(at) + '</div>';
+      });
+      const end = v.len === v.items.length ? ptr.filter(p => p.v === v.len) : [];
+      if (end.length) cells += '<div class="vz-cell"><b class="ghost"></b><i>' + v.len + '</i>' + tags(end) + '</div>';
+      if (v.len > v.items.length) cells += '<span class="vz-more">… ' + (v.len - v.items.length) + ' more</span>';
+      h += row(v.n, '<div class="vz-cells">' + cells + '</div>', v.t === 'list' ? '' : v.t);
+    } else if (v.k === 'grid') {
+      drawn.add(v.n);
+      const hits = traceRel.grid.filter(x => x.g === v.n).map(x => [numOf(x.r), numOf(x.c)]);
+      h += row(v.n, '<div class="vz-grid" style="grid-template-columns:repeat(' + v.w + ',max-content)">' + v.rows.map((r, i) => r.map((t, j) => {
+        const at = hits.some(p => p[0] === i && p[1] === j), chg = was && was.rows[i] && was.rows[i][j] !== undefined && was.rows[i][j] !== t;
+        return '<div class="vz-cell' + (at ? ' at' : '') + (chg ? ' chg' : '') + '"><b>' + esc(t) + '</b></div>';
+      }).join('')).join('') + '</div>', v.h + ' × ' + v.w);
+    } else if (v.k === 'map') {
+      drawn.add(v.n);
+      const before = was ? new Map(was.entries) : null;
+      h += row(v.n, v.len ? '<div class="vz-pairs">' + v.entries.map(e => '<span class="vz-pair' + (before && before.get(e[0]) !== e[1] ? ' chg' : '') + '"><span>' + esc(e[0]) + '</span><em>' + esc(e[1]) + '</em></span>').join('') +
+        (v.len > v.entries.length ? '<span class="vz-more">… ' + (v.len - v.entries.length) + ' more</span>' : '') + '</div>' : '<span class="vz-more">empty</span>', 'dict');
+    } else if (v.k === 'set') {
+      drawn.add(v.n);
+      const before = was ? new Set(was.items) : null;
+      h += row(v.n, v.len ? '<div class="vz-pairs">' + v.items.map(t => '<span class="vz-pair' + (before && !before.has(t) ? ' chg' : '') + '"><em>' + esc(t) + '</em></span>').join('') +
+        (v.len > v.items.length ? '<span class="vz-more">… ' + (v.len - v.items.length) + ' more</span>' : '') + '</div>' : '<span class="vz-more">empty</span>', 'set');
+    }
+  }
+  // linked lists: every chain that some variable can reach, with the variables written above the node they hold
+  const held = viz.filter(v => v.k === 'node'), N = s.nodes || {}, ids = Object.keys(N).map(Number);
+  if (held.length && ids.length) {
+    const pointed = new Set(ids.map(id => N[id].next).filter(x => x !== null)), done = new Set(), was = prev && prev.nodes ? prev.nodes : null;
+    let first = true;
+    for (const start of ids.filter(id => !pointed.has(id)).concat(ids)) {
+      if (done.has(start)) continue;
+      let id = start, body = '', n = 0;
+      while (id !== null && N[id] && !done.has(id) && n++ < 16) {
+        done.add(id);
+        const names = held.filter(v => v.id === id), o = was && was[id], chg = o && (o.next !== N[id].next || o.v !== N[id].v);
+        body += '<div class="vz-node' + (names.length ? ' at' : '') + (chg ? ' chg' : '') + '"><u>' + esc(names.map(v => v.n).join(', ')) + '</u><b>' + esc(N[id].v) + '</b></div><span class="vz-arrow">→</span>';
+        id = N[id].next;
+      }
+      body += '<span class="vz-arrow">' + (id === null ? 'None' : N[id] ? 'back to ' + esc(N[id].v) : '…') + '</span>';
+      h += row(first ? 'nodes' : '', '<div class="vz-chain">' + body + '</div>');
+      first = false;
+    }
+    held.forEach(v => drawn.add(v.n));
+  }
+  return [h, drawn];
 }
 function renderTraceStep() {
   if (!trace) return;
@@ -786,11 +1131,18 @@ function renderTraceStep() {
   $('tr-pos').textContent = (traceI + 1) + ' / ' + n;
   $('tr-where').innerHTML = s.end ? '<b>The program finished.</b> These are the final values.'
     : '<b>Line ' + s.line + '</b> in ' + esc(s.fn) + (s.ret !== null ? ' · returns <code>' + esc(s.ret) + '</code>' : ' · about to run');
-  const old = prev && prev.fn === s.fn && prev.depth === s.depth ? new Map(prev.vars) : null;
-  $('tr-vars').innerHTML = s.vars.length ? '<table><tbody>' + s.vars.map(v => {
+  // who called whom: worth showing once a function has called another, or itself
+  const stack = s.stack || [];
+  $('tr-stack').hidden = stack.length < 2;
+  if (stack.length >= 2) $('tr-stack').innerHTML = 'Call stack, ' + stack.length + ' deep: ' + (stack.length > 5 ? '… › ' : '') + stack.slice(-5).map(f => '<b>' + esc(f) + '</b>').join(' › ');
+  const pic = vizHtml(s, prev), old = prev && prev.fn === s.fn && prev.depth === s.depth ? new Map(prev.vars) : null;
+  $('tr-viz').innerHTML = pic[0];
+  $('tr-viz').hidden = !pic[0];
+  const rest = s.vars.filter(v => !pic[1].has(v[0]));
+  $('tr-vars').innerHTML = rest.length ? '<table><tbody>' + rest.map(v => {
     const changed = old && (!old.has(v[0]) || old.get(v[0]) !== v[1]);
     return '<tr class="' + (changed ? 'chg' : '') + '"><th>' + esc(v[0]) + '</th><td>' + esc(v[1]) + '</td></tr>';
-  }).join('') + '</tbody></table>' : '<p class="mute">No variables yet.</p>';
+  }).join('') + '</tbody></table>' : s.vars.length ? '' : '<p class="mute">No variables yet.</p>';
   let end = '';
   if (atEnd) {
     if (trace.error) end = errorCard(trace.error, trace.errorLine, trace.truncated ? 'The recording ends here. The run went on and later stopped with this error.' : 'The run stops here.');
@@ -812,9 +1164,9 @@ const Mentor = (() => {
     refused: 'The mentor could not answer that.', empty_completion: 'The mentor had nothing to say this time. Try again after your next run.', upstream_error: 'The mentor could not be reached. Try again in a moment.' };
   const GONE = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'];
   async function init() {
-    if (!window.claude || typeof window.claude.use !== 'function') return;
+    if (!online()) return;
     try { ask = await window.claude.use('sample'); } catch (e) { ask = null; }
-    if (ask && cur) $('btn-mentor').hidden = false;
+    if (ask && cur && play.mode === 'normal') $('btn-mentor').hidden = false;
   }
   function describeRun() {
     const r = lastRes;
@@ -845,7 +1197,7 @@ const Mentor = (() => {
       'The player\'s code:\n' + editor.value.slice(0, 6000) + '\n\nWhat happened on their last run:\n' + describeRun();
   }
   async function go() {
-    if (!ask || !cur) return;
+    if (!ask || !cur || play.mode !== 'normal') return;
     stop();
     const lv = cur, box = $('mentor'), my = ++seq;
     closeTrace();
@@ -885,18 +1237,25 @@ function showIntro() {
     '<div class="done-actions"><button type="button" class="btn primary" data-focus id="intro-start">Start on the Boot Deck</button><button type="button" class="btn ghost" id="intro-skip">I already know some Python</button></div></div>',
   { onClose: () => { if (!S.intro) { S.intro = true; save(); } } });
 }
+const seg = (attr, value, label, on) => '<button type="button" class="seg' + (on ? ' on' : '') + '" data-' + attr + '="' + value + '">' + label + '</button>';
 function showMenu() {
-  const sp = [1, 2, 4].map(v => '<button type="button" class="seg' + (S.speed === v ? ' on' : '') + '" data-speed="' + v + '">' + v + '×</button>').join('');
+  const q = World.getQuality() || { now: '' }, due = reviewsLeft();
   Sfx.play('modal');
-  modal('<h2>Menu</h2><div class="rows">' +
+  modal('<h2>Menu</h2>' +
+    (mode === 'hub' ? '<div class="goto"><button type="button" class="btn" id="btn-review2">Review' + (due ? ' <b>' + due + '</b>' : '') + '</button><button type="button" class="btn" id="btn-interview2">Interview</button><button type="button" class="btn" id="btn-lab2">Scratchpad</button>' +
+      '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-badges2">Badges</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
+    '<h3>Sound</h3><div class="rows">' +
     '<div class="row"><label for="opt-music">Music</label><span class="vol"><input type="range" id="opt-music-vol" min="0" max="100" value="' + Math.round(S.musicVol * 100) + '" aria-label="Music volume"><input type="checkbox" id="opt-music"' + (S.music ? ' checked' : '') + '></span></div>' +
-    '<div class="row"><label for="opt-sound">Sound effects</label><span class="vol"><input type="range" id="opt-sfx-vol" min="0" max="100" value="' + Math.round(S.sfxVol * 100) + '" aria-label="Sound effects volume"><input type="checkbox" id="opt-sound"' + (S.sound ? ' checked' : '') + '></span></div>' +
-    '<div class="row"><span>Drone replay speed</span><span class="segs">' + sp + '</span></div>' +
+    '<div class="row"><label for="opt-sound">Sound effects</label><span class="vol"><input type="range" id="opt-sfx-vol" min="0" max="100" value="' + Math.round(S.sfxVol * 100) + '" aria-label="Sound effects volume"><input type="checkbox" id="opt-sound"' + (S.sound ? ' checked' : '') + '></span></div></div>' +
+    '<h3>Play</h3><div class="rows">' +
+    '<div class="row"><span>Graphics<small>Auto picks for your device and steps down if the picture stutters' + (q.now ? '. Now: ' + q.now : '') + '.</small></span><span class="segs">' + ['auto', 'high', 'medium', 'low'].map(v => seg('gfx', v, v[0].toUpperCase() + v.slice(1), S.gfx === v)).join('') + '</span></div>' +
+    '<label class="row" for="opt-ac"><span>Suggestions while typing<small>Names, methods and whole lines, each with a reminder of what it does.</small></span><input type="checkbox" id="opt-ac"' + (S.ac ? ' checked' : '') + '></label>' +
+    '<div class="row"><span>Drone replay speed</span><span class="segs">' + [1, 2, 4].map(v => seg('speed', v, v + '×', S.speed === v)).join('') + '</span></div>' +
     '<label class="row" for="opt-unlock"><span>Unlock every level<small>For people who already know the basics and want to jump ahead.</small></span><input type="checkbox" id="opt-unlock"' + (S.unlockAll ? ' checked' : '') + '></label>' +
-    '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> indent · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
+    '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> take a suggestion, or indent · <kbd>Ctrl</kbd> <kbd>Space</kbd> ask for suggestions · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
     '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, collections, heapq, itertools, functools, bisect and a few more). Files, input(), async code and third-party packages are not included.</p>' +
     '<p class="mute">' + (Cloud.ready ? 'Your progress is saved to your Claude account and in this browser.' : 'Your progress is saved in this browser, on this device.') + ' Music: “Pythonic Ambiance”.</p>' +
-    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>');
+    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>', { wide: true });
 }
 function showBadges() {
   Sfx.play('modal');
@@ -907,7 +1266,7 @@ function showBadges() {
 function showCodex(openId) {
   if (openId) {
     const lv = LEVELS[INDEX[openId]];
-    modal('<button type="button" class="btn ghost" id="codex-back">‹ All levels</button><div class="eyebrow" style="color:' + zoneOf(lv).color + '">Floor ' + lv.zone + ' · ' + esc(lv.concept) + '</div><h2>' + esc(lv.title) + '</h2><div class="prose">' + lv.lesson + '</div>' +
+    modal('<button type="button" class="btn ghost" id="codex-back">‹ All levels</button><div class="eyebrow" style="margin-top:14px">Floor ' + lv.zone + ' · ' + esc(lv.concept) + '</div><h2>' + esc(lv.title) + '</h2><div class="prose">' + lv.lesson + '</div>' +
       '<div class="done-actions"><button type="button" class="btn primary" data-go="' + INDEX[openId] + '">Go to this level</button></div>', { wide: true });
     hl($('modal-body'));
     return;
@@ -933,7 +1292,7 @@ async function showBoard() {
   $('board-note').textContent = S.board ? 'Your XP is shown to everyone who can open this page.' : 'Only people who join are listed. Joining shows your name, rank and XP to everyone who can open this page.';
   const body = $('board-body');
   body.innerHTML = '<button type="button" class="btn' + (S.board ? '' : ' primary') + '" id="board-toggle">' + (S.board ? 'Leave the leaderboard' : 'Join the leaderboard') + '</button>' +
-    (rows.length ? '<ol class="board"></ol>' : '<p class="mute">Nobody has joined yet.</p>');
+    (rows.length ? '<ol class="board" style="margin-top:12px"></ol>' : '<p class="mute" style="margin-top:12px">Nobody has joined yet.</p>');
   const ol = body.querySelector('.board');
   if (ol) rows.forEach((r, i) => {
     const li = document.createElement('li');
@@ -952,6 +1311,13 @@ function confirmBox(title, text, yes, fn) {
 
 // ---------------------------------------------------------------- events
 const CMD_TEXT = { 'for i in range(n):': 'for i in range(3):', 'while condition:': 'while front_is_clear():', 'if condition:': 'if on_shard():', 'if / elif / else': 'if front_is_clear():', 'def name():': 'def my_trick():' };
+function back() {
+  if (play.mode === 'interview' && S.iv) {
+    const iv = S.iv, open = iv.ids.filter(id => !(iv.res[id] && iv.res[id].ok)).length;
+    if (open) confirmBox('End the interview?', open + (open === 1 ? ' problem is' : ' problems are') + ' still unsolved and will count as missed. The clock keeps running while you decide.', 'End it', () => finishInterview(false));
+    else finishInterview(false);
+  } else closeLevel();
+}
 function bind() {
   document.addEventListener('click', e => {
     const t = e.target.closest('button, [data-zone]');
@@ -961,16 +1327,20 @@ function bind() {
     if (t.dataset.tab) { Sfx.play('click'); showTab(t.dataset.tab); return; }
     if (t.dataset.cmd) { editor.insert(CMD_TEXT[t.dataset.cmd] || t.dataset.cmd); return; }
     if (t.dataset.ins !== undefined) { editor.insert(t.dataset.ins); return; }
+    if (t.dataset.move) { editor.move(+t.dataset.move); return; }
     if (t.dataset.speed) { S.speed = +t.dataset.speed; save(); document.querySelectorAll('[data-speed]').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed)); return; }
+    if (t.dataset.gfx) { S.gfx = t.dataset.gfx; save(); World.setQuality(S.gfx); document.querySelectorAll('[data-gfx]').forEach(b => b.classList.toggle('on', b.dataset.gfx === S.gfx)); return; }
     if (t.dataset.codex) { showCodex(t.dataset.codex); return; }
     if (t.dataset.trace !== undefined) { startTrace(+t.dataset.trace); return; }
+    if (t.dataset.iv) { closeModal(); startInterview(t.dataset.iv); return; }
+    if (t.dataset.ivgo !== undefined) { if (+t.dataset.ivgo !== (S.iv && S.iv.at)) enterInterview(+t.dataset.ivgo); return; }
     if (t.dataset.go) { const i = +t.dataset.go; closeModal(); if (mode === 'level') closeLevel(); selectLevel(i); return; }
     switch (id) {
       case 'card-prev': Sfx.play('select'); selectLevel(hubSel - 1); break;
       case 'card-next': Sfx.play('select'); selectLevel(hubSel + 1); break;
       case 'card-enter': openLevel(hubSel); break;
-      case 'btn-back': closeLevel(); break;
-      case 'go-code': showTab('code'); editor.focus(); break;
+      case 'btn-back': back(); break;
+      case 'go-code': showTab('code'); if (!coarse) editor.focus(); break;
       case 'btn-run': run(); break;
       case 'btn-trace': if (trace) closeTrace(); else startTrace(); break;
       case 'tr-close': closeTrace(); break;
@@ -985,22 +1355,29 @@ function bind() {
       case 'btn-mentor': Mentor.go(); break;
       case 'mentor-stop': Mentor.stop(); break;
       case 'btn-hint': { const s = st(cur.id); if (s.hints < cur.hints.length) { s.hints++; Sfx.play('hint'); save(); closeTrace(); renderHints(); $('hints').lastElementChild.scrollIntoView({ block: 'nearest' }); } break; }
-      case 'btn-reset': confirmBox('Reset your code?', 'The editor goes back to the starting code for this level. Your stars are kept.', 'Reset the code', () => { editor.set(cur.starter); onCodeChange(); $('results').innerHTML = ''; setStatus(''); lastRes = null; buildArena(); }); break;
+      case 'btn-forgot': confirmBox('Show the solution?', 'That is fine: forgetting is part of learning. You will see the model solution, and this level comes back tomorrow.', 'Show it', () => { if (cur && play.mode === 'review') reviewDone(cur, false); }); break;
+      case 'btn-reset': confirmBox('Reset your code?', 'The editor goes back to the starting code for this level.' + (play.mode === 'normal' ? ' Your stars are kept.' : ''), 'Reset the code', () => { editor.set(cur.starter); onCodeChange(); $('results').innerHTML = ''; setStatus(''); lastRes = null; buildArena(); }); break;
       case 'btn-replay': if (cur && cur.kind === 'robot' && !busy) { World.resetRobot(); editor.markActive(null); } break;
       case 'sol-reveal': confirmBox('Reveal the solution?', 'You will see a full working answer. This level will then award 1 star instead of 3.', 'Reveal it', () => { st(cur.id).saw = true; save(); renderSolution(); }); break;
       case 'sol-load': editor.set(cur.solution); onCodeChange(); showTab('code'); break;
       case 'btn-music': S.music = !S.music; save(); renderHud(); Music.apply(); Sfx.play('click'); break;
       case 'btn-menu': case 'btn-menu2': showMenu(); break;
-      case 'btn-codex': Sfx.play('modal'); showCodex(); break;
+      case 'btn-codex': case 'btn-codex2': Sfx.play('modal'); showCodex(); break;
       case 'codex-back': showCodex(); break;
-      case 'btn-badges': showBadges(); break;
-      case 'btn-lab': enter(SANDBOX); break;
-      case 'btn-board': Sfx.play('modal'); showBoard(); break;
+      case 'btn-badges': case 'btn-badges2': showBadges(); break;
+      case 'btn-lab': case 'btn-lab2': enter(SANDBOX); break;
+      case 'btn-review': case 'btn-review2': closeModal(); startReview(); break;
+      case 'rv-next': closeModal(); startReview(); break;
+      case 'btn-interview': case 'btn-interview2': showInterviews(); break;
+      case 'iv-finish': back(); break;
+      case 'iv-close': closeModal(); break;
+      case 'btn-board': case 'btn-board2': Sfx.play('modal'); showBoard(); break;
       case 'board-toggle': S.board = !S.board; save(); if (S.board) Cloud.flushNow().then(showBoard); else Cloud.leave().then(showBoard); break;
       case 'menu-close': closeModal(); break;
-      case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
-        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board };
-        S = Object.assign({ v: 1, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, t: 0 }, keep);
+      case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge, review date and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
+        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx };
+        clearInterval(ivTimer);
+        S = Object.assign({ v: 1, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], t: 0 }, keep);
         save(); if (mode === 'level') closeLevel(); selectLevel(0, true); refreshProgress(); toast('Progress erased.');
       }); break;
       case 'intro-start': closeModal(); selectLevel(0); break;
@@ -1009,7 +1386,7 @@ function bind() {
       case 'done-solution': closeModal(); showTab('solution'); break;
       case 'done-retry': closeModal(); cleanAttempt(); break;
       case 'retry-clean': confirmBox('Start a clean attempt?', 'The editor goes back to the starting code and the hints are hidden again. Solve the level without hints, the mentor or the Solution tab to earn the third star.', 'Start clean', cleanAttempt); break;
-      case 'done-tower': { const i = INDEX[cur.id]; closeModal(); closeLevel(i); if (i + 1 < LEVELS.length) setTimeout(() => selectLevel(i + 1), 500); break; }
+      case 'done-tower': { const i = cur && play.mode === 'normal' && INDEX[cur.id] !== undefined ? INDEX[cur.id] : -1; closeModal(); closeLevel(i >= 0 ? i : undefined); if (i >= 0 && i + 1 < LEVELS.length) setTimeout(() => selectLevel(i + 1), 500); break; }
     }
   });
   document.addEventListener('change', e => {
@@ -1017,6 +1394,7 @@ function bind() {
     if (id === 'opt-sound') { S.sound = e.target.checked; save(); Sfx.play('click'); }
     else if (id === 'opt-music') { S.music = e.target.checked; save(); renderHud(); Music.apply(); }
     else if (id === 'opt-unlock') { S.unlockAll = e.target.checked; save(); refreshProgress(); }
+    else if (id === 'opt-ac') { S.ac = e.target.checked; save(); editor.setComplete(S.ac); }
     else if (id === 'opt-sfx-vol') Sfx.play('pass');           // let them hear the new level
     else if (id === 'tr-test') startTrace(+e.target.value);
   });
@@ -1037,30 +1415,55 @@ function bind() {
       else if (e.key === 'Enter' && !onButton) openLevel(hubSel);
     } else if (mode === 'level') {
       if (trace && !typing && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); traceGo(e.key === 'ArrowRight' ? 1 : -1); }
-      else if (e.key === 'Escape' && !typing) { if (trace) closeTrace(); else closeLevel(); }
+      else if (e.key === 'Escape' && !typing) { if (trace) closeTrace(); else back(); }
       else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !typing) { e.preventDefault(); run(); }
     }
   });
   for (const ev of ['pointerdown', 'pointerup', 'click', 'touchend']) document.addEventListener(ev, () => Music.start(), true);
-  window.addEventListener('pagehide', () => { if (cur) { st(cur.id).code = editor.value; save(); } });
+  window.addEventListener('pagehide', () => { if (cur) { keepCode(); save(); } });
+}
+// On a phone the keyboard covers half the screen. When it opens, the page shrinks to the part that is still visible
+// and folds the 3D view away, so the editor, the suggestions and the Run button all stay in reach.
+function watchViewport() {
+  const vv = window.visualViewport, app = $('app');
+  if (!vv || !coarse) return;
+  let tall = vv.height, wide = vv.width, was = false;
+  const fit = () => {
+    if (Math.abs(vv.width - wide) > 40) { wide = vv.width; tall = vv.height; }       // the phone was turned
+    tall = Math.max(tall, vv.height);
+    const a = document.activeElement, typing = !!a && /^(TEXTAREA|INPUT)$/.test(a.tagName), kb = typing && tall - vv.height > 130;
+    if (kb) { app.style.height = vv.height + 'px'; app.style.transform = vv.offsetTop ? 'translateY(' + vv.offsetTop + 'px)' : ''; }
+    else if (was) { app.style.height = ''; app.style.transform = ''; }
+    if (kb !== was) { was = kb; app.classList.toggle('kb', kb); World.resize(); }
+  };
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);
+  document.addEventListener('focusout', () => setTimeout(fit, 60));
 }
 
 // ---------------------------------------------------------------- boot
 function boot() {
   loadLocal();
   if (!LEVELS.length) { document.body.textContent = 'Pylon could not load its levels.'; return; }
-  editor = window.PylonEditor($('editor'), { onRun: run, onChange: onCodeChange });
+  editor = window.PylonEditor($('editor'), { onRun: run, onChange: onCodeChange, strip: $('ac-strip'), complete: S.ac, onPick });
   bind();
+  watchViewport();
   // The leaderboard, cloud saves and the mentor need the claude.ai viewer. Anywhere else the game runs on its own and saves in the browser.
-  $('btn-board').hidden = !(window.claude && typeof window.claude.use === 'function');
+  $('btn-board').hidden = !online();
+  World.setQuality(S.gfx);
   setMode('hub');
+  if (seedReviews()) save();
   checkBadges(true);
   renderHud(); renderFloors();
   const start = () => {
+    $('stage').classList.add('ready');
     refreshProgress();
     const i = S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex());
     selectLevel(i, true);
-    if (S.open === 'sandbox') enter(SANDBOX);
+    if (S.iv && S.iv.ids && S.iv.ids.every(id => INDEX[id] !== undefined)) {
+      if (S.iv.t0 + S.iv.limit > Date.now()) enterInterview(S.iv.at || 0);            // an interview was in progress: the clock kept running
+      else { play = { mode: 'interview' }; finishInterview(true); play = { mode: 'normal' }; }
+    } else if (S.open === 'sandbox') enter(SANDBOX);
     else if (S.open && INDEX[S.open] !== undefined && isUnlocked(INDEX[S.open])) openLevel(INDEX[S.open]);
     else if (!S.intro) showIntro();
   };
@@ -1069,7 +1472,9 @@ function boot() {
   // Progress saved from another device arrives a moment after the page starts. Fold it in without disturbing a level in play.
   Cloud.init().then(merged => {
     if (!merged) return;
+    tidy(); seedReviews();
     checkBadges(true);
+    editor.setComplete(S.ac);
     if (mode !== 'hub') { renderPanelStars(); renderHints(); renderSolution(); return; }
     if (S.intro && $('modal-body').querySelector('.intro')) closeModal();
     selectLevel(S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex()), true);
