@@ -51,6 +51,10 @@ Then open http://localhost:8000/.
 
 MiniPy covers the language and the standard modules the levels use (math, collections, heapq, itertools, functools, bisect and a few more). Files, `input()`, async code and third-party packages are not included.
 
+Each script link in `index.html` carries a stamp of the file's contents (`js/game.js?v=…`), so a browser never pairs the page with an older cached script. After editing a file in `js/`, refresh the stamps:
+
+    node tools/stamp.js
+
 The 3D picture has three quality tiers. "Auto" starts from the kind of device and steps down by itself if frames stay slow; the Menu lets you pick one.
 
 ## Checks
