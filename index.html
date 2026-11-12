@@ -92,6 +92,7 @@ p { margin: 0; }
 #hud { position: absolute; inset: 0 0 auto 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; padding: 14px var(--gr) 34px var(--gl); pointer-events: none; background: linear-gradient(#05070ff5 0%, #05070fb8 55%, #05070f00); }
 #hud > * { pointer-events: auto; }
 .brand { display: flex; align-items: center; gap: 16px; }
+@media (min-width: 900px) { .brand { flex-direction: column; align-items: flex-start; gap: 7px; } }      /* the longest ranks need the room beside the title */
 .logo { font: 700 32px/1 var(--display); letter-spacing: .44em; margin-right: -.44em; padding-right: .44em; }
 .rank { font: 700 13px/1 var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--on-accent); background: var(--accent); border-radius: 2px; padding: 6px 9px 5px; transition: background-color .4s; }
 .stats { margin-left: auto; display: flex; align-items: flex-start; gap: 16px; }
@@ -547,6 +548,30 @@ button.tc-head:hover::after { color: var(--accent); }
 .t-file summary { font: 600 12px/1.3 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); cursor: pointer; }
 .t-file pre { margin: 6px 0 0; }
 
+/* story and PIP */
+#pip-say { position: absolute; left: 14px; top: 14px; z-index: 3; max-width: min(72%, 400px); padding: 10px 14px; font: 500 15.5px/1.4 var(--body); color: var(--ink); background: #0a0f20f2; border: 1px solid var(--line-2); border-left: 3px solid #4fe3d0; border-radius: 3px 12px 12px 12px; pointer-events: none; }
+#pip-say::before { content: "PIP"; display: block; font: 600 11px/1 var(--display); letter-spacing: .2em; color: #4fe3d0; margin-bottom: 5px; }
+#pip-say.in { animation: sayin .3s var(--ease) both; }
+@keyframes sayin { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #pip-say.in { animation: none; } }
+.mode-hub #pip-say { display: none; }
+.tlog { margin: 14px 0; padding: 14px 16px 12px; background: #080c1c; border: 1px solid var(--line-2); border-left: 3px solid var(--zc, var(--accent)); border-radius: 4px; }
+.tlog > span { display: block; font: 600 12px/1.3 var(--display); letter-spacing: .17em; text-transform: uppercase; color: var(--zc, var(--accent)); margin-bottom: 8px; }
+.tlog p { margin: 0 0 8px; font: 400 15.5px/1.6 var(--mono); color: var(--ink); max-width: 68ch; }
+.tlog em { display: block; font: 400 13.5px/1.4 var(--mono); font-style: normal; color: var(--mute); }
+.tlog.locked { opacity: .55; border-left-color: var(--line-2); }
+.tlog.locked p { font-family: var(--body); color: var(--mute); margin: 0; }
+.pip-line { margin: 10px 0 0; font: 400 15.5px/1.45 var(--body); color: var(--ink-2); }
+.tlog .pip-line { font-family: var(--body); margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); color: var(--ink-2); }
+.pip-line b { font: 600 11px/1 var(--display); letter-spacing: .2em; color: #4fe3d0; margin-right: 8px; }
+.ending p { font-size: 17px; line-height: 1.6; margin: 0 0 12px; max-width: 60ch; }
+.ending p.radio { font: 500 15.5px/1.6 var(--mono); color: #4fe3d0; padding: 10px 14px; background: #060916; border: 1px solid var(--line); border-radius: 4px; }
+.ending p.mute { font-size: 15px; margin-top: 18px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 260px; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line-2); background: radial-gradient(circle at 35% 30%, #ffffffb0, var(--sw) 55%); cursor: pointer; padding: 0; }
+.swatch.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--accent); }
+.swatch:disabled { opacity: .28; cursor: default; filter: grayscale(.6); }
+
 /* craft marks */
 .craft { margin: 12px 0 10px; padding: 12px 14px; background: var(--deck-2); border: 1px solid var(--line-2); border-radius: 4px; }
 .craft-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 10px; }
@@ -588,6 +613,7 @@ button.tc-head:hover::after { color: var(--accent); }
     <canvas id="gl"></canvas>
     <div id="nogl" hidden><p>The 3D view could not start in this browser. Every level still works: pick one below and write code.</p></div>
     <div id="stage-note" hidden></div>
+    <div id="pip-say" role="status" aria-live="polite" hidden></div>
     <div id="robot-ctl" hidden>
       <span class="segs" role="group" aria-label="Replay speed">
         <button type="button" class="seg on" data-speed="1">1×</button><button type="button" class="seg" data-speed="2">2×</button><button type="button" class="seg" data-speed="4">4×</button>
@@ -691,10 +717,11 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/levels-z8.js?v=be4b774f"></script>
 <script src="js/levels-z9.js?v=0e276f5f"></script>
 <script src="js/toolcards.js?v=bbd2f717"></script>
+<script src="js/story.js?v=ce8d2b91"></script>
 <script src="js/curriculum.js?v=9c74b978"></script>
 <script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
-<script src="js/world.js?v=28c1ac26"></script>
-<script src="js/game.js?v=41a1482e"></script>
+<script src="js/world.js?v=6d732f4a"></script>
+<script src="js/game.js?v=ceba8dc4"></script>
 </body>
 </html>

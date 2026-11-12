@@ -658,7 +658,7 @@ function buildArena() {
   const z = zoneOf(cur);
   shownMap = 0;
   if (cur.kind === 'robot') World.showRobot(Runner.parseMap(cur.maps[0]), z.color);
-  else World.showTests(cur.tests.length, cur.tests.map(t => !!t.perf), z.color, !!cur.boss);
+  else World.showTests(cur.tests.length, cur.tests.map(t => !!t.perf), z.color, !!cur.boss, z.n);
 }
 function openLevel(i) {
   if (!LEVELS[i]) return;
@@ -720,6 +720,8 @@ function enter(lv, opts) {
   renderHints(); renderSolution(); renderPanelStars(); updateLineCount();
   showTab(!normal || lab || cur.kind === 'code' || s.read || s.solved || s.tries ? 'code' : 'lesson');
   buildArena();
+  hush();
+  greet(cur);
   save();
 }
 function closeLevel(celebrate) {
@@ -727,6 +729,7 @@ function closeLevel(celebrate) {
   Mentor.stop();
   closeTrace();
   clearNote();
+  hush();
   clearInterval(ivTimer);
   keepCode();
   busy = animating = false;
@@ -1156,6 +1159,7 @@ async function run() {
   if (!res.ok) {
     s.fails = (s.fails || 0) + 1;
     haptic(60);
+    consol(lv, res, s.fails);
     // The first time a test fails, point at the tool that explains why.
     if (lv.kind === 'code' && !res.error && !S.tipTrace && !S.counters.traces) { S.tipTrace = true; setTimeout(() => toast('Tip: “Step through” replays a test one line at a time and draws your data.'), 600); }
     save();
@@ -1166,6 +1170,8 @@ async function run() {
   solved(lv, res);
 }
 function solved(lv, res) {
+  const litBefore = floorDone(zoneOf(lv).n);
+  hush();
   const s = st(lv.id), stars = s.saw ? 1 : (s.hints > 0 || s.mentor) ? 2 : 3, xp = xpFor(lv, stars), before = rankIndex(), first = !s.solved;
   const gain = Math.max(0, xp - (s.solved ? s.xp : 0)), best = Math.max(s.stars, stars);
   // Efficiency: interpreter steps over all tests, next to the model solution's.
@@ -1180,6 +1186,7 @@ function solved(lv, res) {
   toolsFor = null;
   if (play.mode === 'normal' && cur === lv) { const nx = nextOf(lv); renderLesson(); $('tab-btn-lesson').classList.toggle('dot', !!nx && nx.kind === 'code' && !s.brief); }
   const after = rankIndex(), i = INDEX[lv.id];
+  if (after > before) applyPaint();                // a paint that was waiting for this rank goes on now
   World.setProgress(progressList(), nextIndex());
   checkBadges();
   setTimeout(() => {
@@ -1199,9 +1206,12 @@ function solved(lv, res) {
     if (first && lv.kind === 'code') h += '<p class="eff"><span>Review</span> This level comes back tomorrow, to be written again from memory.</p>';
     const sk = streak();
     if (sk >= 2) h += '<p class="eff"><span>Streak</span> ' + sk + ' days in a row.</p>';
+    const justLit = done && !litBefore, summit = justLit && ZONES.every(f => floorDone(f.n));
+    if (justLit) h += logHtml(z.n - 1, z.color);
+    else h += pipLine(pickLine(stars < 3 ? Story.LINES.help : res.craft && res.craftOwn && res.craft.earned === 4 ? Story.LINES.clean : Story.LINES.pass, i + (s.tries || 0)));
     if (promoted) h += '<div class="promo" style="--zc:' + z.color + '"><span>Promotion</span><strong>' + esc(RANKS[after]) + '</strong>' + (ZONES[after] && zoneLevels(ZONES[after].n).length ? '<em>Floor ' + ZONES[after].n + ', ' + esc(ZONES[after].name) + ', is now open.</em>' : '<em>The whole Pylon is online. There is nothing left to fix here.</em>') + '</div>';
     const nx = nextOf(lv), briefFirst = !!nx && nx.kind === 'code' && !s.brief;
-    h += '<div class="done-actions">' + (briefFirst ? '<button type="button" class="btn primary" data-focus id="done-brief">Briefing for the next level</button>' : '') +
+    h += '<div class="done-actions">' + (summit ? '<button type="button" class="btn primary" data-focus id="done-ending">Light the beacon</button>' : briefFirst ? '<button type="button" class="btn primary" data-focus id="done-brief">Briefing for the next level</button>' : '') +
       (last ? '' : '<button type="button" class="btn' + (briefFirst ? '"' : ' primary" data-focus') + ' id="done-next">Next level</button>') +
       '<button type="button" class="btn" id="done-solution">Read the model solution</button>' + (best < 3 ? '<button type="button" class="btn" id="done-retry">Clean attempt for 3 stars</button>' : '') +
       '<button type="button" class="btn ghost" id="done-tower">Back to the tower</button></div></div>';
@@ -1532,10 +1542,78 @@ const Mentor = (() => {
 })();
 
 // ---------------------------------------------------------------- dialogs
+// ---------------------------------------------------------------- story, PIP's voice and PIP's paint
+const Story = window.PYLON_STORY || { LOGS: [], AUTHOR: '', EPILOGUE: [], LINES: { floor: [], enter: [], boss: [], fail: {}, pass: [], clean: [], help: [], back: [] } };
+const pickLine = (list, n) => (list && list.length ? list[Math.abs(Math.floor(n)) % list.length] : '');
+let sayTimer = 0;
+function say(text, ms) {
+  if (!text || S.pipTalk === false || mode !== 'level') return;
+  const el = $('pip-say');
+  el.textContent = text;
+  el.hidden = false;
+  el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { el.hidden = true; }, ms || 5600);
+}
+function hush() { clearTimeout(sayTimer); const el = $('pip-say'); if (el) el.hidden = true; }
+// What PIP says when a level opens for the first time ...
+function greet(lv) {
+  if (lv.kind === 'sandbox' || play.mode !== 'normal') return;
+  const s = st(lv.id);
+  if (s.hello || s.solved || s.tries) return;
+  s.hello = true;
+  const L = Story.LINES, n = INDEX[lv.id];
+  const line = lv.order === 1 ? L.floor[lv.zone - 1] : lv.boss ? pickLine(L.boss, lv.zone) : n % 3 === 0 ? pickLine(L.enter, n / 3) : '';
+  if (line) setTimeout(() => { if (cur === lv) say(line); }, 1100);
+}
+// ... and when a run fails: it names the kind of trouble, and after a few tries it points at Step through.
+function consol(lv, res, fails) {
+  const L = Story.LINES.fail, slow = (res.tests || []).some(t => t.slow), err = res.error || ((res.tests || []).find(t => t.error) || {}).error;
+  const key = fails >= 3 && fails % 3 === 0 ? 'again' : slow ? 'slow' : err ? (L[err.type] ? err.type : 'any') : 'wrong';
+  say(pickLine(L[key], fails + lv.order));
+}
+const pipLine = text => (text ? '<p class="pip-line"><b>PIP</b> ' + esc(text) + '</p>' : '');
+function logHtml(k, color) {
+  const log = Story.LOGS[k];
+  return log ? '<div class="tlog" style="--zc:' + color + '"><span>Tower log ' + (k + 1) + ' of ' + Story.LOGS.length + ' · ' + esc(log.title) + '</span><p>' + esc(log.text) + '</p><em>' + esc(Story.AUTHOR) + '</em>' + pipLine(log.pip) + '</div>' : '';
+}
+function showLogbook() {
+  let h = '<h2>Tower log</h2><p class="mute">The last chief engineer left one entry on every floor. An entry is recovered when its floor comes back online.</p>';
+  ZONES.forEach((z, k) => {
+    h += floorDone(z.n) ? logHtml(k, z.color) : '<div class="tlog locked" style="--zc:' + z.color + '"><span>Tower log ' + (k + 1) + ' of ' + Story.LOGS.length + '</span><p>Bring Floor ' + z.n + ', ' + esc(z.name) + ', back online to recover this entry.</p></div>';
+  });
+  if (ZONES.every(z => floorDone(z.n))) h += '<div class="done-actions"><button type="button" class="btn primary" id="ending-again">Watch the ending again</button></div>';
+  modal(h, { wide: true });
+}
+function showEnding() {
+  closeModal();
+  if (mode === 'level') closeLevel(true); else World.showHub(true);
+  S.ended = true;
+  save();
+  setTimeout(() => {
+    Sfx.play('rank');
+    modal('<div class="ending"><div class="eyebrow">The Pylon is online</div><h2>Signal restored</h2>' + Story.EPILOGUE.map((p, k) => '<p' + (k === 2 ? ' class="radio"' : '') + '>' + esc(p) + '</p>').join('') +
+      '<p class="mute">' + LEVELS.length + ' levels, ' + ZONES.length + ' floors, one drone. Thank you for playing. The daily reviews, the interviews and the craft marks are still here, and so is every level you might want to write better.</p>' +
+      '<div class="done-actions"><button type="button" class="btn primary" data-focus id="ending-close">Back to the tower</button><button type="button" class="btn" id="ending-log">Read the tower log</button></div></div>', { wide: true });
+  }, 1500);
+}
+// PIP's paint. Every rank unlocks one more.
+const PAINTS = [
+  { id: 'white', name: 'Factory white', color: 0x8f97b3 }, { id: 'teal', name: 'Boot teal', color: 0x1f9d90 }, { id: 'amber', name: 'Garden amber', color: 0xc07f2c },
+  { id: 'green', name: 'Cipher green', color: 0x55a23f }, { id: 'violet', name: 'Vault violet', color: 0x7462c9 }, { id: 'ice', name: 'Archive ice', color: 0x3fa3c6 },
+  { id: 'rose', name: 'Forge rose', color: 0xbd4d7d }, { id: 'blue', name: 'Works blue', color: 0x3b78c9 }, { id: 'orange', name: 'Reactor orange', color: 0xc5633c },
+  { id: 'gold', name: 'Summit gold', color: 0xbb9930 },
+];
+const paintOpen = k => k <= rankIndex() || S.unlockAll;
+function applyPaint() { const k = Math.max(0, PAINTS.findIndex(p => p.id === S.paint)); World.setPaint(PAINTS[paintOpen(k) ? k : 0].color); }
+const paintHex = c => '#' + ('000000' + c.toString(16)).slice(-6);
+const paintsHtml = () => PAINTS.map((p, k) => '<button type="button" class="swatch' + ((S.paint || 'white') === p.id ? ' on' : '') + '" data-paint="' + p.id + '"' + (paintOpen(k) ? '' : ' disabled') + ' style="--sw:' + paintHex(p.color) + '" title="' + esc(p.name) + (paintOpen(k) ? '' : ': reach the rank of ' + esc(RANKS[k])) + '" aria-label="' + esc(p.name) + (paintOpen(k) ? '' : ', locked') + '"></button>').join('');
+
 function showIntro() {
   modal('<div class="intro"><div class="eyebrow">Signal tower · nine floors · one drone</div><h2>The Pylon has been dark for years.</h2>' +
     '<p>You are the new engineer. PIP, the maintenance drone, does exactly what your Python tells it to do, no more and no less.</p>' +
     '<p>Each platform on the tower is a problem to solve with real code, from <code>move()</code> on the Boot Deck to the classic interview problems near the top. Bring a whole floor back online and you are promoted. Floor 7 makes you a Senior Engineer.</p>' +
+    '<p>Nobody knows why the tower went dark. The last chief engineer left nine log entries behind, one on every floor.</p>' +
     '<div class="done-actions"><button type="button" class="btn primary" data-focus id="intro-start">Start on the Boot Deck</button><button type="button" class="btn ghost" id="intro-skip">I already know some Python</button></div></div>',
   { onClose: () => { if (!S.intro) { S.intro = true; save(); } } });
 }
@@ -1545,7 +1623,7 @@ function showMenu() {
   Sfx.play('modal');
   modal('<h2>Menu</h2>' +
     (mode === 'hub' ? '<div class="goto"><button type="button" class="btn" id="btn-review2">Review' + (due ? ' <b>' + due + '</b>' : '') + '</button><button type="button" class="btn" id="btn-interview2">Interview</button><button type="button" class="btn" id="btn-lab2">Scratchpad</button>' +
-      '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-badges2">Badges</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
+      '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-log2">Tower log</button><button type="button" class="btn" id="btn-badges2">Badges</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
     '<h3>Sound</h3><div class="rows">' +
     '<div class="row"><label for="opt-music">Music</label><span class="vol"><input type="range" id="opt-music-vol" min="0" max="100" value="' + Math.round(S.musicVol * 100) + '" aria-label="Music volume"><input type="checkbox" id="opt-music"' + (S.music ? ' checked' : '') + '></span></div>' +
     '<div class="row"><label for="opt-sound">Sound effects</label><span class="vol"><input type="range" id="opt-sfx-vol" min="0" max="100" value="' + Math.round(S.sfxVol * 100) + '" aria-label="Sound effects volume"><input type="checkbox" id="opt-sound"' + (S.sound ? ' checked' : '') + '></span></div></div>' +
@@ -1555,6 +1633,8 @@ function showMenu() {
     '<label class="row" for="opt-replay"><span>Replay each run in the arena<small>Before the verdict, the first test is played back on your data: lists as crates, linked lists as chains.</small></span><input type="checkbox" id="opt-replay"' + (S.replay !== false ? ' checked' : '') + '></label>' +
     '<div class="row"><span>Drone replay speed</span><span class="segs">' + [1, 2, 4].map(v => seg('speed', v, v + '×', S.speed === v)).join('') + '</span></div>' +
     '<label class="row" for="opt-unlock"><span>Unlock every level<small>For people who already know the basics and want to jump ahead.</small></span><input type="checkbox" id="opt-unlock"' + (S.unlockAll ? ' checked' : '') + '></label>' +
+    '<label class="row" for="opt-pip"><span>PIP talks<small>A line from the drone when a level opens and when a run fails.</small></span><input type="checkbox" id="opt-pip"' + (S.pipTalk !== false ? ' checked' : '') + '></label>' +
+    '<div class="row"><span>PIP\'s paint<small>Every rank unlocks one more.</small></span><span class="swatches" id="swatches">' + paintsHtml() + '</span></div>' +
     '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> take a suggestion, or indent · <kbd>Ctrl</kbd> <kbd>Space</kbd> ask for suggestions · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
     '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, re, collections, heapq, itertools, functools, bisect and a few more). Files live in memory, and input() reads the lines a test or the Scratchpad\'s Input box gives it. Async code and third-party packages are not included.</p>' +
     '<p class="mute">' + (Cloud.ready ? 'Your progress is saved to your Claude account and in this browser.' : 'Your progress is saved in this browser, on this device.') + ' Music: “Pythonic Ambiance”.</p>' +
@@ -1640,6 +1720,7 @@ function bind() {
     if (t.dataset.iv) { closeModal(); startInterview(t.dataset.iv); return; }
     if (t.dataset.ivgo !== undefined) { if (+t.dataset.ivgo !== (S.iv && S.iv.at)) enterInterview(+t.dataset.ivgo); return; }
     if (t.dataset.card !== undefined) { toggleCard(t); return; }
+    if (t.dataset.paint) { S.paint = t.dataset.paint; save(); applyPaint(); Sfx.play('select'); const box = $('swatches'); if (box) box.innerHTML = paintsHtml(); return; }
     if (t.dataset.craftline !== undefined) { const line = +t.dataset.craftline; if (line && editor) { showTab('code'); editor.markWarn(line); } return; }
     if (t.dataset.go) { const i = +t.dataset.go; closeModal(); if (mode === 'level') closeLevel(); selectLevel(i); return; }
     switch (id) {
@@ -1653,6 +1734,10 @@ function bind() {
       case 'done-brief': { closeModal(); showTab('lesson'); const b = $('brief'); if (b) b.scrollIntoView({ block: 'start' }); break; }
       case 'grew-go': { closeModal(); const i = nextIndex(); if (i >= 0) selectLevel(i); break; }
       case 'grew-close': closeModal(); break;
+      case 'btn-log2': showLogbook(); break;
+      case 'done-ending': case 'ending-again': showEnding(); break;
+      case 'ending-close': closeModal(); break;
+      case 'ending-log': showLogbook(); break;
       case 'btn-run': run(); break;
       case 'btn-trace': if (trace) closeTrace(); else startTrace(); break;
       case 'tr-close': closeTrace(); break;
@@ -1708,6 +1793,7 @@ function bind() {
     else if (id === 'opt-unlock') { S.unlockAll = e.target.checked; save(); refreshProgress(); }
     else if (id === 'opt-ac') { S.ac = e.target.checked; save(); editor.setComplete(S.ac); }
     else if (id === 'opt-replay') { S.replay = e.target.checked; save(); }
+    else if (id === 'opt-pip') { S.pipTalk = e.target.checked; save(); if (!S.pipTalk) hush(); }
     else if (id === 'opt-sfx-vol') Sfx.play('pass');           // let them hear the new level
     else if (id === 'tr-test') startTrace(+e.target.value);
   });
@@ -1770,6 +1856,7 @@ function boot() {
   renderHud(); renderFloors();
   const start = () => {
     $('stage').classList.add('ready');
+    applyPaint();
     refreshProgress();
     const i = S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex());
     selectLevel(i, true);

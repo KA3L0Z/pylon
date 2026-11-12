@@ -16,7 +16,7 @@ const mq = q => !!(root.matchMedia && root.matchMedia(q).matches);
 const calm = mq('(prefers-reduced-motion: reduce)'), coarse = mq('(pointer: coarse)');
 const FONT = "'Barlow Condensed', 'Arial Narrow', 'Trebuchet MS', sans-serif";
 let renderer, scene, camera, stage, canvas, glowTex, gridTex, sun, rim, hemi, sky, dust, starsB, bloom = null;
-let hub, arena, pip, hubPip, selRing, beacon, beaconGlow, parts;
+let hub, arena, pip, hubPip, selRing, beacon, beaconGlow, parts, shellPaint = 0x8f97b3;
 let nodes = [], zoneInfo = [], pickables = [], levels = [], zones = [];
 let mode = 'hub', selected = 0, nextNode = -1, epoch = 0, cb = {}, time = 0, arenaSpan = 9;
 const cam = { az: 0, y: 0, dist: 27 }, camT = { az: 0, y: 0, dist: 27 };
@@ -240,7 +240,7 @@ function makePip() {
   const g = new T.Group(), tilt = new T.Group();
   g.add(tilt);
   // The shell is painted mid-grey on purpose: under the key light and the film curve that is what reads as white with shading left in it.
-  const shell = std(0x8f97b3, { roughness: 0.3, metalness: 0.04, clearcoat: 1, clearcoatRoughness: 0.16, envMapIntensity: 0.7 });
+  const shell = std(shellPaint, { roughness: 0.3, metalness: 0.04, clearcoat: 1, clearcoatRoughness: 0.16, envMapIntensity: 0.7 });
   const dark = std(0x0c1232, { roughness: 0.22, metalness: 0.75, envMapIntensity: 1.35 });
   const body = new T.Mesh(new T.SphereGeometry(0.34, 32, 20), shell);
   body.scale.y = 0.92;
@@ -263,7 +263,7 @@ function makePip() {
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = -0.41;
   tilt.add(body, visor, mast, tip, ring, under, lamp);
   g.add(shadow);
-  g.userData = { tilt, eyes, eyeMat, ears, ring, tip, shadow, mood: 'idle', phase: Math.random() * 6 };
+  g.userData = { tilt, eyes, eyeMat, ears, ring, tip, shadow, shell, mood: 'idle', phase: Math.random() * 6 };
   return g;
 }
 function setMood(p, mood) {
@@ -605,16 +605,50 @@ W.playRobot = async function (run, opts) {
 
 // ---------------------------------------------------------------- arena: test crystals
 const CSTATE = { idle: 0x2a3676, run: 0xffffff, pass: null, fail: 0xff5d73, slow: 0xffb347 };
-W.showTests = function (count, perf, color, boss) {
+// Every floor has its own arena: the shape of the deck, the cut of the test crystals, and what drifts in the dark behind it.
+const THEMES = [null, null, { sides: 6, gem: 'octa', prop: 'leaf' }, { sides: 8, gem: 'tetra', prop: 'ring' }, { sides: 4, gem: 'cube', prop: 'stack' }, { sides: 6, gem: 'slab', prop: 'slab' },
+  { sides: 8, gem: 'icosa', prop: 'gear' }, { sides: 6, gem: 'dodeca', prop: 'pillar' }, { sides: 10, gem: 'spike', prop: 'arc' }, { sides: 12, gem: 'star', prop: 'shard' }];
+function gemGeo(kind, big) {
+  switch (kind) {
+    case 'tetra': return new T.TetrahedronGeometry(0.5 * big);
+    case 'cube': return new T.BoxGeometry(0.5 * big, 0.5 * big, 0.5 * big);
+    case 'slab': return new T.BoxGeometry(0.48 * big, 0.66 * big, 0.12 * big);
+    case 'icosa': return new T.IcosahedronGeometry(0.42 * big, 0);
+    case 'dodeca': return new T.DodecahedronGeometry(0.42 * big, 0);
+    case 'spike': { const g = new T.OctahedronGeometry(0.33 * big); g.scale(1, 1.6, 1); return g; }
+    case 'star': { const g = new T.IcosahedronGeometry(0.34 * big, 0); g.scale(0.85, 1.35, 0.85); return g; }
+    default: return new T.OctahedronGeometry(0.4 * big);
+  }
+}
+function addProps(kind, col) {
+  const mat = std(0x0e1538, { emissive: col, emissiveIntensity: 0.1, roughness: 0.4, metalness: 0.6, flatShading: true }), props = [];
+  const put = (geo, k, n, r, y, spin) => {
+    const a = -Math.PI / 2 + (k - (n - 1) / 2) * (2.5 / n), m = new T.Mesh(geo, mat);       // an arc behind the deck, clear of the camera
+    m.position.set(r * Math.cos(a), y, r * Math.sin(a) - 1);
+    m.userData.spin = spin; m.userData.y = y; m.userData.k = k;
+    arena.add(m); props.push(m);
+    return m;
+  };
+  if (kind === 'leaf') { const g = new T.TetrahedronGeometry(0.34); for (let k = 0; k < 14; k++) put(g, k, 14, 9 + (k % 3) * 1.3, 1 + (k * 37 % 50) / 10, 0.5 + (k % 4) * 0.2); }
+  else if (kind === 'ring') { const g = new T.TorusGeometry(1.15, 0.05, 6, 30); for (let k = 0; k < 6; k++) { const m = put(g, k, 6, 10, 2 + (k % 3) * 1.6, 0.35 + (k % 2) * 0.2); m.rotation.x = 0.5 + k; } }
+  else if (kind === 'stack') { const g = new T.BoxGeometry(0.8, 0.8, 0.8); for (let k = 0; k < 15; k++) { const m = put(g, Math.floor(k / 3), 5, 10, 0.3 + (k % 3) * 0.95, 0); m.rotation.y = k * 0.4; } }
+  else if (kind === 'slab') { const g = new T.BoxGeometry(0.95, 3.6, 0.16); for (let k = 0; k < 8; k++) { const m = put(g, k, 8, 9.5 + (k % 2), 1.6 + (k % 3) * 0.5, 0); m.rotation.y = -m.position.x * 0.08; } }
+  else if (kind === 'gear') { const g = new T.TorusGeometry(1.5, 0.16, 4, 10); for (let k = 0; k < 5; k++) { const m = put(g, k, 5, 10.5, 2.2 + (k % 2) * 2.2, 0); m.userData.roll = (k % 2 ? -1 : 1) * 0.5; } }
+  else if (kind === 'pillar') { const g = new T.CylinderGeometry(0.11, 0.11, 9, 6); for (let k = 0; k < 9; k++) put(g, k, 9, 9.5 + (k % 2) * 1.5, 3.6, 0); }
+  else if (kind === 'arc') { const g = new T.TorusGeometry(2.7, 0.045, 6, 44, Math.PI); for (let k = 0; k < 5; k++) { const m = put(g, k, 5, 10.5, 0.4 + (k % 2) * 0.8, 0); m.rotation.y = Math.PI / 2 - (-Math.PI / 2 + (k - 2) * 0.5); } }
+  else if (kind === 'shard') { const g = new T.OctahedronGeometry(0.26); for (let k = 0; k < 16; k++) put(g, k, 16, 8.5 + (k % 4) * 0.9, 0.8 + (k * 53 % 70) / 10, 0.8 + (k % 3) * 0.3); }
+  return props;
+}
+W.showTests = function (count, perf, color, boss, floor) {
   clearArena();
-  const col = lin(color);
-  const deck = new T.Mesh(new T.CylinderGeometry(3.3, 2.7, 0.6, 6), std(0x151d48, { roughness: 0.4, metalness: 0.62 }));
+  const col = lin(color), theme = THEMES[floor] || { sides: 6, gem: 'octa', prop: null }, sides = theme.sides;
+  const deck = new T.Mesh(new T.CylinderGeometry(3.3, 2.7, 0.6, sides), std(0x151d48, { roughness: 0.4, metalness: 0.62 }));
   deck.position.y = -0.3;
   // Dark glass with the floor's colour running through it as lines of light.
-  const deckTop = new T.Mesh(new T.CylinderGeometry(3.0, 3.0, 0.05, 6), std(0x070b1e, { emissive: col, emissiveMap: gridTex, emissiveIntensity: 1.15, roughness: 0.18, metalness: 0.55, envMapIntensity: 1.2 }));
+  const deckTop = new T.Mesh(new T.CylinderGeometry(3.0, 3.0, 0.05, sides), std(0x070b1e, { emissive: col, emissiveMap: gridTex, emissiveIntensity: 1.15, roughness: 0.18, metalness: 0.55, envMapIntensity: 1.2 }));
   deckTop.position.y = 0.02;
-  const rimM = new T.Mesh(new T.TorusGeometry(3.3, 0.06, 6, 6), basic(col));
-  rimM.rotation.set(Math.PI / 2, 0, Math.PI / 6);
+  const rimM = new T.Mesh(new T.TorusGeometry(3.3, 0.06, 6, sides), basic(col));
+  rimM.rotation.set(Math.PI / 2, 0, (Math.PI / 2) % (TAU / sides));
   const under = glow(color, 13, 0.2);
   under.position.y = -2;
   arena.add(deck, deckTop, rimM, under);
@@ -628,7 +662,7 @@ W.showTests = function (count, perf, color, boss) {
     const post = new T.Mesh(new T.CylinderGeometry(0.035, 0.035, h, 6), postMat);
     post.position.set(x, h / 2 - 0.1, z);
     // A faceted gem: it reflects the lamps around it and glows from inside in the colour of its state.
-    const mat = std(0x0b1030, { emissive: CSTATE.idle, emissiveIntensity: 0.7, roughness: 0.1, metalness: 0.35, flatShading: true, envMapIntensity: 1.05 }), gem = new T.Mesh(new T.OctahedronGeometry(0.4 * big), mat);
+    const mat = std(0x0b1030, { emissive: CSTATE.idle, emissiveIntensity: 0.7, roughness: 0.1, metalness: 0.35, flatShading: true, envMapIntensity: 1.05 }), gem = new T.Mesh(gemGeo(theme.gem, big), mat);
     gem.position.set(x, h + 0.35, z);
     const g = glow(0xffffff, 2.2 * big, 0);
     g.position.copy(gem.position);
@@ -650,7 +684,7 @@ W.showTests = function (count, perf, color, boss) {
   pip.scale.setScalar(2.1);
   pip.position.set(0, 0.95, 0.4);
   arena.add(pip);
-  board = { col };
+  board = { col, props: theme.prop ? addProps(theme.prop, col) : [] };
   atarget.set(0, 1.5, -1.2);
   acamT.az = Math.PI / 2; acamT.el = 0.36; acamT.dist = fitDist(boss ? 7.6 : 6.6, 0.36);
   openShot();
@@ -992,6 +1026,10 @@ function frame(now, fromTimer) {
       if (c.gem.userData.ring) { c.gem.userData.ring.position.copy(c.gem.position); c.gem.userData.ring.rotation.x += dt * 1.5; c.gem.userData.ring.rotation.y += dt; }
     }
     if (lock && lock.visible) { lock.rotation.y += dt * 0.5; lock.rotation.x += dt * 0.23; }
+    if (board && board.props && !calm) for (const p of board.props) {
+      if (p.userData.spin) { p.rotation.y += dt * p.userData.spin; p.rotation.x += dt * p.userData.spin * 0.6; p.position.y = p.userData.y + Math.sin(time * 0.6 + p.userData.k) * 0.25; }
+      if (p.userData.roll) p.rotation.z += dt * p.userData.roll;
+    }
   }
   placeCamera(dt);
   aimLights(dt);
@@ -1008,6 +1046,8 @@ function frame(now, fromTimer) {
   }
 }
 W.mood = m => { if (mode === 'arena' && pip) setMood(pip, m); };
+// PIP's shell colour, on the tower and in the arena.
+W.setPaint = function (hex) { shellPaint = hex; for (const p of [hubPip, pip]) if (p && p.userData.shell) setLin(p.userData.shell.color, hex); };
 
 // A small studio of coloured lamps that every shiny surface reflects. It is never seen directly.
 function makeEnv() {
