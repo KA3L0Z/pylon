@@ -830,15 +830,17 @@ const Term = (() => {
       $('term').hidden = !Terminal || !lv;
       if (!Terminal || !lv) return;
       $('term-row').hidden = lv.kind === 'robot';
+      $('term').open = window.innerWidth > 900;          // on a small screen the task comes first: the terminal opens with the first run
       add([{ k: 'note', t: lv.kind === 'robot' ? '# Run your program: what it prints and any error show up here.' : '# Run your code: what it prints and what each call returns show up here. Then try lines of your own below.' }], true);
     },
     // A run has finished: write it down, and bring the first thing that went wrong into view.
     show(lv, res, code) {
       if (!Terminal) return;
       live = null; buffer = []; prompt();
+      $('term').open = true;
       add(Terminal.transcript(lv, res, code), true);
       const el = box(), bad = el.querySelector('.tl.bad, .tl-err');
-      if (bad) el.scrollTop = Math.max(0, bad.offsetTop - el.offsetTop - 28); else bottom();
+      if (bad) el.scrollTop = Math.max(0, bad.offsetTop - el.offsetTop - 4); else bottom();
     },
     // A line typed at the prompt. The session is made from the code as it is in the editor now.
     enter(text) {
@@ -1855,7 +1857,7 @@ function greet(lv) {
   s.hello = true;
   const L = Story.LINES, n = INDEX[lv.id];
   const line = lv.order === 1 ? L.floor[lv.zone - 1] : lv.boss ? pickLine(L.boss, lv.zone) : n % 3 === 0 ? pickLine(L.enter, n / 3) : '';
-  if (line) setTimeout(() => { if (cur === lv) say(line); }, 1100);
+  if (line) setTimeout(() => { if (cur === lv) say(line, staged && window.innerWidth <= 900 ? 3200 : 0); }, 1100);
 }
 // ... and when a run fails: it names the kind of trouble, and after a few tries it points at Step through.
 function consol(lv, res, fails) {
