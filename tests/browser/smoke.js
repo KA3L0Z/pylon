@@ -1,6 +1,7 @@
 // A real browser plays the first minutes of Pylon, the way a new player would, and fails loudly if anything breaks:
 // the intro, the first-time tour, a drone level, a code level, a failing run, the step-by-step view, the bug hunt,
-// the save code, the comfort settings and, on the built site, starting again with the network switched off.
+// the save code, the comfort settings, the score that follows the floor and, on the built site, starting again with
+// the network switched off. It also renders the music of several floors without playing it and measures the result.
 //
 //   npm install --no-save puppeteer-core        (drives a Chrome that is already installed; downloads no browser)
 //   node tests/browser/smoke.js [--show]
@@ -31,7 +32,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const url = 'http://localhost:' + server.address().port + '/';
   const browser = await puppeteer.launch({ executablePath: chrome, headless: !process.argv.includes('--show'),
-    args: ['--no-sandbox', '--mute-audio', '--window-size=1280,800', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+    args: ['--no-sandbox', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--window-size=1280,800', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
   const errors = [];
@@ -99,6 +100,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     expect(saved && saved.solved && saved.stars === 3, 'the first level was not saved as solved with three stars');
     await click('#done-tower');
     await until(() => document.getElementById('app').classList.contains('mode-hub'));
+    const playing = () => page.evaluate(() => document.documentElement.dataset.music || '');
+    expect(/^score: /.test(await playing()), 'the score did not start after the first clicks (music: "' + await playing() + '")');
 
     say('lighter graphics, and every level unlocked from the Menu');
     await click('#btn-menu'); await seen('#opt-unlock');
@@ -111,6 +114,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await openLevel(code[0].id);
     await skipTour(true);
     expect(await run() === 'Not yet', 'the starting code of a code level passed its tests');
+    await until(() => document.documentElement.dataset.music === 'score: Logic Gardens', null, 15000).catch(() => { throw new Error('the score did not move to the theme of floor 2'); });
     await setCode(code[0].solution);
     expect(await run() === 'Solved', 'the model solution of ' + code[0].id + ' did not pass');
     await seen('#modal-body .done');
@@ -156,6 +160,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
     say('the save code and the comfort settings');
     await click('#btn-menu'); await seen('#btn-savebox');
+    await click('[data-trk="classic"]');
+    await until(() => document.documentElement.dataset.music === 'track', null, 8000).catch(() => { throw new Error('choosing the original track did not switch the music'); });
+    await click('[data-trk="score"]');
+    await until(() => /^score: /.test(document.documentElement.dataset.music), null, 8000).catch(() => { throw new Error('choosing the tower score did not switch the music back'); });
     await click('[data-ts="2"]');
     expect(await page.evaluate(() => document.documentElement.classList.contains('ts-2')), 'the larger text size was not applied');
     await click('[data-ts="0"]');
@@ -178,6 +186,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       expect(offline.levels === levels.length, 'offline, ' + offline.levels + ' levels loaded instead of ' + levels.length);
       expect(offline.solved >= 3, 'offline, the saved progress is gone');
       await page.setOfflineMode(false);
+    }
+
+    say('the score, rendered without playing: every note in key, steady loudness, no clipping');
+    await page.setOfflineMode(false);
+    await page.goto(url + 'tools/dev-score.html', { waitUntil: 'load', timeout: 60000 });
+    const takes = await page.evaluate(async () => {
+      const out = [];
+      for (const set of [{ floor: 1, scene: 'hub', solved: 0, online: 0, lit: false }, { floor: 3, scene: 'level', solved: 20, online: 2, lit: false }, { floor: 6, scene: 'hub', solved: 77, online: 9, lit: true }, { floor: 9, scene: 'hub', solved: 77, online: 9, lit: true }]) {
+        const r = await window.bench.render({ seconds: 24, seed: 9, set: Object.assign({ tense: false }, set), script: [{ at: 12, cue: 'fail' }, { at: 16, cue: 'pass' }] }), m = window.bench.measure(r.buf, r.log, false);
+        out.push({ theme: r.theme, scene: set.scene, peak: m.peak, rms: m.rms, quiet: m.quietestSecond, offKey: window.bench.offKey(r.log, set.floor), notes: r.log.length });
+      }
+      return out;
+    });
+    for (const t of takes) {
+      console.log('    ' + t.theme + ' (' + t.scene + '): ' + t.notes + ' notes, level ' + t.rms + ' dB, peak ' + t.peak + ' dB');
+      expect(t.offKey === 0, t.theme + ': ' + t.offKey + ' notes are outside the key');
+      expect(t.peak < -0.5, t.theme + ': the music clips (peak ' + t.peak + ' dB)');
+      expect(t.rms > -27 && t.rms < -14, t.theme + ': the level is off (' + t.rms + ' dB)');
+      expect(t.quiet > -34, t.theme + ': a second of near silence (' + t.quiet + ' dB)');
+      expect(t.notes > 20, t.theme + ': hardly any notes were written');
     }
 
     expect(!errors.length, 'the page reported errors:\n    ' + errors.join('\n    '));

@@ -26,7 +26,8 @@ Pylon is a free browser game that teaches Python, from the first function call t
 - **Mock interviews.** A timed set of classic problems with no lesson, no hints and no solution, and a report at the end.
 - **A tour for new players.** A few notes point at the parts of the screen, once on the first drone level and once on the first code level.
 - **Comfort settings.** Three text sizes, less motion, and higher contrast, in the Menu. The game also follows the system's "reduce motion" setting.
-- **Scratchpad, hints, model solutions, 23 badges and a daily streak**, plus music and sound effects.
+- **A score that follows the play.** The music is not a recording. It is written while it plays, in the browser: every floor has a theme in its own key, from D Dorian on the Boot Deck to D major at the summit, and one five-note motif, the tower's signal, runs through all of them. The tower starts almost silent, and bass, full chords, arpeggios, a slow lead voice and a pulse come in as levels are solved and floors come back online. Inside a level the mix pulls back so it is easy to think, a failed run dims the sound for a moment, a passed one is answered by the bells, and the sound effects are tuned to the key of the theme that is playing. The original recorded track can still be chosen in the Menu.
+- **Scratchpad, hints, model solutions, 23 badges and a daily streak.**
 
 ![The tower](docs/tower.jpg)
 
@@ -94,9 +95,10 @@ Then open http://localhost:8000/.
 | `js/complete.js` | What the editor suggests at the caret, and the one-line reminders |
 | `js/editor.js` | The code editor |
 | `js/world.js` | The 3D tower and arenas (three.js): image-based reflections, soft shadows, bloom, filmic tone mapping, and the player's data as crates |
-| `js/game.js` | Progress, interface, briefings, Toolbox, step-by-step view, reviews, the bug hunt, interviews, the tour, comfort settings, the save code, badges, audio |
+| `js/score.js` | The score: themes, harmony, the instruments (all synthesized with Web Audio, no samples) and the mix that follows the game |
+| `js/game.js` | Progress, interface, briefings, Toolbox, step-by-step view, reviews, the bug hunt, interviews, the tour, comfort settings, the save code, badges, sound effects |
 | `sw.js`, `manifest.webmanifest`, `icons/` | The offline copy and what a browser needs to install the site as an app |
-| `audio/` | The music track |
+| `audio/` | The original recorded track, for players who choose it in the Menu |
 | `tools/`, `tests/` | The checks below |
 
 MiniPy covers the language and the standard modules the levels use (math, re, collections, heapq, itertools, functools, bisect and a few more). Three things differ from a real Python on purpose:
@@ -136,7 +138,9 @@ There is also a test in which a real browser plays the game:
     npm install --no-save puppeteer-core
     node tests/browser/smoke.js
 
-It drives a Chrome that is already installed (set `CHROME_BIN` if it is not found) through the intro, both tours, a drone level, a code level, a failing run, the step-by-step view, the bug hunt, the save code and the text size, and then starts the page again with the network switched off.
+It drives a Chrome that is already installed (set `CHROME_BIN` if it is not found) through the intro, both tours, a drone level, a code level, a failing run, the step-by-step view, the bug hunt, the save code and the text size, checks that the score starts and follows the floor, and then starts the page again with the network switched off. Last, it renders the music of four settings without playing it and checks every note is in key, the level is steady and nothing clips.
+
+To listen to the score outside the game, open `tools/dev-score.html` from a local server: pick a floor, a scene and how far the player has come, press Play, and try the moments the music answers. Its Measure button reports loudness, balance and every note that was written, and draws a spectrogram.
 
 All of this runs on every push (`.github/workflows/checks.yml`). The checks were written with Python 3.10 and Node.js 22.
 
@@ -148,4 +152,4 @@ A save from an earlier, smaller tower (6 floors and 48 levels, then 8 floors and
 
 Not in the game: other languages than English, and any collection of play data. Nothing a player does is sent anywhere.
 
-Music: "Pythonic Ambiance".
+Music: the tower score is generated in the browser by `js/score.js`. The original recorded track is "Pythonic Ambiance".

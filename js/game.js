@@ -201,7 +201,9 @@ const online = () => !!(window.claude && typeof window.claude.use === 'function'
 
 // ---------------------------------------------------------------- sound effects and music
 const Sfx = (() => {
-  let ctx = null, master = null;
+  let ctx = null, master = null, key = 1, shift = 1;
+  // The effects that are little tunes. They are written in C and moved into the key of the music that is playing.
+  const TUNED = { select: 1, collect: 1, hint: 1, mentor: 1, pass: 1, star: 1, badge: 1, boss: 1, rank: 1 };
   function ensure() {
     if (ctx) return true;
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -212,8 +214,8 @@ const Sfx = (() => {
   function tone(freq, start, dur, type, vol, slide) {
     const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + start;
     o.type = type || 'sine';
-    o.frequency.setValueAtTime(freq, t0);
-    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t0 + dur);
+    o.frequency.setValueAtTime(freq * shift, t0);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide * shift, t0 + dur);
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(vol || 0.5, t0 + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
@@ -261,17 +263,60 @@ const Sfx = (() => {
       if (!S.sound || !bank[name] || !ensure()) return;
       if (ctx.state === 'suspended') ctx.resume();
       master.gain.value = 0.2 * Math.max(0, Math.min(1, S.sfxVol));
+      shift = TUNED[name] ? key : 1;
       try { bank[name](); } catch (e) { /* ignore */ }
     },
+    context() { return ensure() ? ctx : null; },            // the music plays through the same audio context
+    tune(semitones) { key = Math.pow(2, (semitones || 0) / 12); },
   };
 })();
 // A phone can answer with a short buzz as well as a sound.
 const haptic = pattern => { if (coarse && S.sound && navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) { /* not allowed here */ } } };
-// Background music: one looping track. Browsers only allow it to start after the first click or key press.
+// Background music. The default is the score: music that is written while it plays and follows the game (js/score.js).
+// The original recording, one looping track, can be chosen in the Menu. Browsers only let either of them start after
+// the first click or key press.
 const Music = (() => {
-  const SRC = 'audio/pythonic-ambiance.mp3';
-  let el = null, started = false, armed = false, failed = false, fade = 0, planB = false, ready = false;
+  const SRC = 'audio/pythonic-ambiance.mp3', Score = window.PylonScore || null, SCORE_GAIN = 1.25;
+  let armed = false;
+  const useScore = () => !!Score && S.track !== 'classic';
   const target = () => S.music ? Math.max(0, Math.min(1, S.musicVol)) * (mode === 'level' ? 0.6 : 1) : 0;
+  const tell = text => { document.documentElement.dataset.music = text; };       // what is playing, readable from outside
+
+  // ---- the score
+  let score = null, pumping = 0, scoreOn = false;
+  // What the score follows: the floor in view and whether it is online, where the player is, and how much of the tower is back.
+  function scoreState() {
+    const inLevel = mode === 'level' && !!cur, lv = inLevel ? cur : LEVELS[hubSel] || LEVELS[0], floor = lv.zone || 0;
+    return { floor, lit: !floor || floorDone(floor), scene: !inLevel ? 'hub' : play.mode === 'interview' ? 'clock' : play.mode === 'bug' ? 'hunt' : 'level',
+      solved: totals().solved, online: ZONES.filter(z => floorDone(z.n)).length, tense: inLevel && play.mode === 'interview' && ivWarned };
+  }
+  function scoreStart() {
+    const ctx = Sfx.context();
+    if (!ctx) return;
+    try {
+      // the sound effects move into the key of the theme that is playing
+      if (!score) score = Score.create(ctx, ctx.destination, { seed: (Date.now() & 0xffffff) || 1, lite: coarse, onTheme: th => { Sfx.tune(th.key); tell('score: ' + th.name); } });
+      if (ctx.state === 'suspended') ctx.resume();
+      score.set(scoreState());
+      score.start();
+      score.volume(target() * SCORE_GAIN, null, 1.5);
+      clearInterval(pumping);
+      pumping = setInterval(() => score.pump(ctx.currentTime + 0.6), 100);
+      score.pump(ctx.currentTime + 0.6);
+      scoreOn = true;
+    } catch (e) { score = null; scoreOn = false; }
+  }
+  function scoreStop() {
+    if (!scoreOn) return;
+    scoreOn = false;
+    clearInterval(pumping);
+    score.volume(0, null, 0.6);
+    score.stop();
+    Sfx.tune(0);
+  }
+
+  // ---- the original track
+  let el = null, started = false, failed = false, fade = 0, planB = false, ready = false;
   const play = () => { const p = el.play(); if (p && p.catch) p.catch(() => { started = false; }); };
   function fadeTo(v, done) {
     clearInterval(fade);
@@ -299,15 +344,13 @@ const Music = (() => {
         // the same four members the rest of this code uses on an <audio> element
         el = { get volume() { return gain.gain.value; }, set volume(v) { gain.gain.value = v; }, get paused() { return ctx.state !== 'running'; }, play: () => ctx.resume(), pause: () => { ctx.suspend(); } };
         ready = started = true;
-        if (S.music && !document.hidden) { play(); fadeTo(target()); } else el.pause();
+        if (S.music && !useScore() && !document.hidden) { play(); fadeTo(target()); } else el.pause();
       })
       .catch(giveUp);
   }
-  // Called from every click and key press: the first one is what lets the browser play sound at all.
-  function start() {
-    armed = true;
-    if (failed || !S.music) return;
-    if (started) { if (el.paused && !document.hidden) play(); return; }
+  function trackStart() {
+    if (failed) return;
+    if (started) { if (el.paused && !document.hidden) { play(); fadeTo(target()); } return; }
     if (planB && !ready) return;            // still fetching the file
     if (!el) {
       el = new Audio(SRC);
@@ -318,18 +361,41 @@ const Music = (() => {
     play();
     fadeTo(target());
   }
-  function apply() {
+  function trackApply() {
     if (failed) return;
-    if (!el || !started) { if (S.music && armed) start(); return; }
+    if (!el || !started) { if (S.music) trackStart(); return; }
     if (!S.music) { fadeTo(0, () => el.pause()); return; }
     if (el.paused && !document.hidden) play();
     fadeTo(target());
   }
+  function trackStop() { if (el && started && !failed && !el.paused) fadeTo(0, () => el.pause()); }
+
+  // ---- both
+  // Called from every click and key press: the first one is what lets the browser play sound at all.
+  function start() {
+    armed = true;
+    if (!S.music || document.hidden) return;
+    if (useScore()) { trackStop(); if (!scoreOn) scoreStart(); }
+    else { scoreStop(); trackStart(); }
+  }
+  // Called whenever the volume, the scene, the floor or the progress may have changed.
+  function apply() {
+    if (!armed) return;
+    if (!S.music) { scoreStop(); if (el && started) trackApply(); tell('off'); return; }
+    if (useScore()) {
+      trackStop();
+      if (!scoreOn) scoreStart();
+      else { score.set(scoreState()); score.volume(target() * SCORE_GAIN, null, 0.9); }
+    } else { scoreStop(); trackApply(); tell('track'); }
+  }
+  // A moment the score answers: 'pass', 'fail', 'rank' (a floor comes online), 'ending'.
+  function cue(name) { if (scoreOn) { try { score.cue(name); } catch (e) { /* the music goes on without it */ } } }
   document.addEventListener('visibilitychange', () => {
-    if (!el || !started || failed || !S.music) return;
-    if (document.hidden) el.pause(); else play();
+    if (!armed || !S.music) return;
+    if (document.hidden) { scoreStop(); if (el && started && !failed) el.pause(); }
+    else start();
   });
-  return { start, apply, get failed() { return failed; } };
+  return { start, apply, cue, get failed() { return failed; } };
 })();
 
 // ---------------------------------------------------------------- small UI pieces
@@ -514,7 +580,7 @@ function tickInterview() {
   if (!iv || play.mode !== 'interview') { clearInterval(ivTimer); return; }
   const left = iv.t0 + iv.limit - Date.now(), c = $('iv-clock');
   if (c) { c.textContent = clock(left); c.classList.toggle('low', left < 120000); }
-  if (left < 120000 && !ivWarned) { ivWarned = true; Sfx.play('clock'); toast('Two minutes left.'); }
+  if (left < 120000 && !ivWarned) { ivWarned = true; Sfx.play('clock'); toast('Two minutes left.'); Music.apply(); }
   if (left <= 0) finishInterview(true);
 }
 function ivAfterRun(lv, res) {
@@ -641,6 +707,7 @@ let play = { mode: 'normal' };
 const progressList = () => LEVELS.map((l, i) => ({ state: isSolved(i) ? 'solved' : isUnlocked(i) ? 'open' : 'locked', stars: (S.levels[l.id] && S.levels[l.id].stars) || 0 }));
 function refreshProgress() {
   World.setProgress(progressList(), nextIndex());
+  Music.apply();
   renderHud(); renderFloors(); renderCard();
 }
 function renderHud() {
@@ -684,7 +751,7 @@ function selectLevel(i, instant) {
   if (i < 0 || i >= LEVELS.length) return;
   hubSel = i;
   S.last = LEVELS[i].id;
-  if (mode === 'hub') setAccent(zoneOf(LEVELS[i]).color);
+  if (mode === 'hub') { setAccent(zoneOf(LEVELS[i]).color); Music.apply(); }       // the score takes the theme of the floor in view
   World.select(i, !!instant);
   renderFloors(); renderCard();
 }
@@ -1241,6 +1308,7 @@ async function run() {
   busy = false;
   if (lv.kind === 'sandbox') { setStatus(res.ok ? 'Done' : 'Error', res.ok ? 'ok' : 'bad'); save(); checkBadges(); return; }
   setStatus(res.ok ? 'Solved' : 'Not yet', res.ok ? 'ok' : 'bad');
+  Music.cue(res.ok ? 'pass' : 'fail');
   if (how === 'interview') { ivAfterRun(lv, res); return; }
   if (how === 'bug') { bugAfterRun(lv, res); return; }
   if (how === 'review') { if (res.ok) reviewDone(lv, true, res); else haptic(60); return; }
@@ -1276,6 +1344,8 @@ function solved(lv, res) {
   const after = rankIndex(), i = INDEX[lv.id];
   if (after > before) applyPaint();                // a paint that was waiting for this rank goes on now
   World.setProgress(progressList(), nextIndex());
+  Music.apply();                                   // a solved level can bring a new layer of the score in
+  if (!litBefore && floorDone(zoneOf(lv).n)) Music.cue('rank');
   checkBadges();
   setTimeout(() => {
     if (cur !== lv) return;
@@ -1678,6 +1748,7 @@ function showEnding() {
   if (mode === 'level') closeLevel(true); else World.showHub(true);
   S.ended = true;
   save();
+  Music.cue('ending');
   setTimeout(() => {
     Sfx.play('rank');
     modal('<div class="ending"><div class="eyebrow">The Pylon is online</div><h2>Signal restored</h2>' + Story.EPILOGUE.map((p, k) => '<p' + (k === 2 ? ' class="radio"' : '') + '>' + esc(p) + '</p>').join('') +
@@ -1781,6 +1852,7 @@ function cleanSave(d) {
   if ([1, 2, 4].indexOf(d.speed) >= 0) out.speed = d.speed;
   if (['auto', 'high', 'medium', 'low'].indexOf(d.gfx) >= 0) out.gfx = d.gfx;
   if (d.ts === 1 || d.ts === 2) out.ts = d.ts;
+  if (d.track === 'score' || d.track === 'classic') out.track = d.track;
   if (PAINTS.some(p => p.id === d.paint)) out.paint = d.paint;
   out.days = Array.isArray(d.days) ? Array.from(new Set(d.days.filter(day))).sort().slice(-400) : [];
   out.badges = {};
@@ -1804,7 +1876,7 @@ function adoptSave(d) {
   clearInterval(ivTimer);
   if (mode === 'level') closeLevel();
   // What belongs to this device and this person stays, unless the save says otherwise: sound, graphics, comfort.
-  const here = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc }, board = S.board;
+  const here = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc, track: S.track }, board = S.board;
   S = Object.assign({ v: 1, levels: {}, unlockAll: false, last: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, ivLog: [], t: 0 }, here, d, { board, intro: true, open: null, iv: null });
   tidy(); migrate(); seedReviews();
   save();
@@ -1956,6 +2028,8 @@ function showMenu() {
       '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-log2">Tower log</button><button type="button" class="btn" id="btn-badges2">Badges</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
     '<h3>Sound</h3><div class="rows">' +
     '<div class="row"><label for="opt-music">Music</label><span class="vol"><input type="range" id="opt-music-vol" min="0" max="100" value="' + Math.round(S.musicVol * 100) + '" aria-label="Music volume"><input type="checkbox" id="opt-music"' + (S.music ? ' checked' : '') + '></span></div>' +
+    (window.PylonScore ? '<div class="row"><span>Soundtrack<small>The tower score is written while you play. It follows the floor you are on, and it grows as the tower comes back online.</small></span><span class="segs">' +
+      seg('trk', 'score', 'Tower score', S.track !== 'classic') + seg('trk', 'classic', 'Original track', S.track === 'classic') + '</span></div>' : '') +
     '<div class="row"><label for="opt-sound">Sound effects</label><span class="vol"><input type="range" id="opt-sfx-vol" min="0" max="100" value="' + Math.round(S.sfxVol * 100) + '" aria-label="Sound effects volume"><input type="checkbox" id="opt-sound"' + (S.sound ? ' checked' : '') + '></span></div></div>' +
     '<h3>Play</h3><div class="rows">' +
     '<div class="row"><span>Graphics<small>Auto picks for your device and steps down if the picture stutters' + (q.now ? '. Now: ' + q.now : '') + '.</small></span><span class="segs">' + ['auto', 'high', 'medium', 'low'].map(v => seg('gfx', v, v[0].toUpperCase() + v.slice(1), S.gfx === v)).join('') + '</span></div>' +
@@ -1974,7 +2048,7 @@ function showMenu() {
     '<div class="row"><span>The tour<small>The walk around the screen for new players.</small></span><button type="button" class="btn" id="btn-tour">Show it again</button></div>' +
     '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> take a suggestion, or indent · <kbd>Ctrl</kbd> <kbd>Space</kbd> ask for suggestions · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
     '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, re, collections, heapq, itertools, functools, bisect and a few more). Files live in memory, and input() reads the lines a test or the Scratchpad\'s Input box gives it. Async code and third-party packages are not included.</p>' +
-    '<p class="mute">Music: “Pythonic Ambiance”.' + (worksOffline() ? ' This copy of Pylon also starts without a connection.' : '') + '</p>' +
+    '<p class="mute">Music: the tower score is generated in your browser as you play. The original track is “Pythonic Ambiance”.' + (worksOffline() ? ' This copy of Pylon also starts without a connection.' : '') + '</p>' +
     '<h3>Your progress</h3><p class="mute">' + (Cloud.ready ? 'Saved to your Claude account and in this browser.' : 'Saved in this browser, on this device.') + ' A save code holds all of it as text: keep one as a backup, or use it to carry your progress to another browser.</p>' +
     '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn" id="btn-savebox">Save code</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>' +
     '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
@@ -2054,6 +2128,7 @@ function bind() {
     if (t.dataset.move) { editor.move(+t.dataset.move); return; }
     if (t.dataset.speed) { S.speed = +t.dataset.speed; save(); document.querySelectorAll('[data-speed]').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed)); return; }
     if (t.dataset.gfx) { S.gfx = t.dataset.gfx; save(); World.setQuality(S.gfx); document.querySelectorAll('[data-gfx]').forEach(b => b.classList.toggle('on', b.dataset.gfx === S.gfx)); return; }
+    if (t.dataset.trk) { S.track = t.dataset.trk; save(); Music.apply(); document.querySelectorAll('[data-trk]').forEach(b => b.classList.toggle('on', b.dataset.trk === (S.track === 'classic' ? 'classic' : 'score'))); return; }
     if (t.dataset.ts !== undefined) { S.ts = +t.dataset.ts || 0; save(); applyComfort(); document.querySelectorAll('[data-ts]').forEach(b => b.classList.toggle('on', +b.dataset.ts === S.ts)); return; }
     if (t.dataset.codex) { showCodex(t.dataset.codex); return; }
     if (t.dataset.trace !== undefined) { startTrace(+t.dataset.trace); return; }
@@ -2133,7 +2208,7 @@ function bind() {
       case 'coach-next': Tour.next(); break;
       case 'coach-skip': Tour.end(); break;
       case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge, review date and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
-        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc };
+        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc, track: S.track };
         clearInterval(ivTimer);
         S = Object.assign({ v: 1, cv: 3, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], t: 0 }, keep);
         save(); if (mode === 'level') closeLevel(); selectLevel(0, true); refreshProgress(); toast('Progress erased.');

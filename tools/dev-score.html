@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pylon score bench</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 20px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px)); background: #05070f; color: #f2f5ff; font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 15px; margin: 22px 0 8px; color: #c5cdee; }
+  p { margin: 0 0 12px; color: #8d98c6; max-width: 70ch; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 10px; }
+  button, select, input { font: inherit; color: inherit; }
+  button { min-height: 36px; padding: 0 12px; background: #18213f; border: 1px solid #36427c; border-radius: 3px; cursor: pointer; }
+  button:hover { border-color: #2ee6c8; } button.on { background: #2ee6c8; color: #04121a; border-color: #2ee6c8; }
+  select, input[type=number] { min-height: 34px; background: #0a0f20; border: 1px solid #36427c; border-radius: 3px; padding: 0 8px; }
+  label { display: inline-flex; gap: 6px; align-items: center; color: #c5cdee; }
+  canvas { display: block; max-width: 100%; background: #000; border: 1px solid #232d55; }
+  pre { background: #0a0f20; border: 1px solid #232d55; border-radius: 3px; padding: 10px 12px; overflow-x: auto; font: 12.5px/1.5 Consolas, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Pylon score bench</h1>
+<p>Listen to the music the game writes while it plays (js/score.js), outside the game. Pick a floor and how far the player has come, press Play, and try the moments the music answers. "Measure" renders a minute without playing it and reports loudness, balance and every note that was written.</p>
+
+<div class="row">
+  <button type="button" id="play">Play</button>
+  <label>Floor <select id="floor"></select></label>
+  <label>Scene <select id="scene"><option value="hub">tower</option><option value="level">inside a level</option><option value="clock">interview</option><option value="hunt">bug hunt</option></select></label>
+  <label>Levels solved <input type="number" id="solved" min="0" max="77" value="77" style="width:70px"></label>
+  <label>Floors online <input type="number" id="online" min="0" max="9" value="9" style="width:60px"></label>
+  <label><input type="checkbox" id="lit" checked> this floor is online</label>
+  <label><input type="checkbox" id="tense"> clock running out</label>
+  <label>Volume <input type="range" id="vol" min="0" max="100" value="70"></label>
+</div>
+<div class="row">
+  <button type="button" data-cue="pass">A run passes</button><button type="button" data-cue="fail">A run fails</button>
+  <button type="button" data-cue="rank">A floor comes online</button><button type="button" data-cue="ending">The ending</button>
+  <span id="now" style="color:#8d98c6"></span>
+</div>
+
+<h2>Measure</h2>
+<div class="row"><button type="button" id="measure">Measure this setting (60 s)</button><button type="button" id="measure-all">Measure every floor</button></div>
+<canvas id="spec" width="1200" height="360"></canvas>
+<pre id="report">Nothing measured yet.</pre>
+
+<script src="../js/score.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id), Score = window.PylonScore;
+Score.THEMES.forEach((t, i) => { const o = document.createElement('option'); o.value = i; o.textContent = i + ' · ' + t.name + ' (' + 'C C# D D# E F F# G G# A A# B'.split(' ')[t.tonic] + ' ' + t.mode + ')'; $('floor').appendChild(o); });
+$('floor').value = 1;
+const setting = () => ({ floor: +$('floor').value, scene: $('scene').value, solved: +$('solved').value, online: +$('online').value, lit: $('lit').checked, tense: $('tense').checked });
+
+// ---- live
+let ctx = null, score = null, timer = 0;
+function play() {
+  if (score && score.playing) { score.stop(); score.volume(0, null, 0.6); clearInterval(timer); $('play').textContent = 'Play'; $('play').classList.remove('on'); return; }
+  if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)(); score = Score.create(ctx, ctx.destination, { seed: Date.now() & 0xffffff, onTheme: t => { $('now').textContent = 'Now playing: ' + t.name; } }); }
+  ctx.resume();
+  score.set(setting());
+  score.start();
+  score.volume($('vol').value / 100, null, 0.8);
+  timer = setInterval(() => score.pump(ctx.currentTime + 0.6), 100);
+  score.pump(ctx.currentTime + 0.6);
+  $('play').textContent = 'Stop'; $('play').classList.add('on');
+}
+$('play').onclick = play;
+for (const id of ['floor', 'scene', 'solved', 'online', 'lit', 'tense']) $(id).addEventListener('change', () => { if (score) score.set(setting()); });
+$('vol').addEventListener('input', () => { if (score && score.playing) score.volume($('vol').value / 100, null, 0.2); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-cue]'); if (b && score) score.cue(b.dataset.cue); });
+
+// ---- offline: render without playing, then measure
+function fft(re, im) {                              // in place, length a power of two
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k], ui = im[i + k], vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi; re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+const db = x => (x > 0 ? 20 * Math.log10(x) : -120);
+const NAMES = 'C C# D D# E F F# G G# A A# B'.split(' '), nameOf = m => NAMES[m % 12] + (Math.floor(m / 12) - 1);
+// script: [{ at: seconds, set: {...} } | { at: seconds, cue: 'pass' }] applied while the music is being written
+async function render(opts) {
+  const seconds = opts.seconds || 60, rate = 44100, off = new OfflineAudioContext(2, rate * seconds, rate), log = [];
+  const score = Score.create(off, off.destination, { seed: opts.seed || 7, log, lite: !!opts.lite, solo: opts.solo || null });
+  score.set(opts.set || setting(), 0);
+  score.volume(opts.volume == null ? 1 : opts.volume, 0);
+  score.start(0.05);
+  let at = 0.05;
+  for (const ev of (opts.script || []).slice().sort((a, b) => a.at - b.at)) {
+    score.pump(ev.at); at = ev.at;
+    if (ev.set) score.set(ev.set, ev.at);
+    if (ev.cue) score.cue(ev.cue, ev.at);
+  }
+  score.pump(seconds);
+  const buf = await off.startRendering();
+  return { buf, log, theme: score.theme.name };
+}
+function measure(buf, log, draw) {
+  const L = buf.getChannelData(0), R = buf.getChannelData(1), n = L.length, rate = buf.sampleRate;
+  let peak = 0, sumL = 0, sumR = 0, sumLR = 0, dc = 0;
+  for (let i = 0; i < n; i++) { const a = Math.abs(L[i]), b = Math.abs(R[i]); if (a > peak) peak = a; if (b > peak) peak = b; sumL += L[i] * L[i]; sumR += R[i] * R[i]; sumLR += L[i] * R[i]; dc += L[i] + R[i]; }
+  const rms = Math.sqrt((sumL + sumR) / (2 * n));
+  // loudness second by second, skipping the fade-in
+  const secs = [];
+  for (let s = 4; s + 1 <= n / rate; s++) { let e = 0; for (let i = s * rate; i < (s + 1) * rate; i++) e += L[i] * L[i] + R[i] * R[i]; secs.push(db(Math.sqrt(e / (2 * rate)))); }
+  // spectrum
+  const N = 4096, hop = 2048, win = new Float32Array(N), bands = [60, 250, 1000, 4000, 10000, 1e9], power = new Float64Array(bands.length), cols = [];
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  let centroidNum = 0, centroidDen = 0;
+  for (let start = 0; start + N <= n; start += hop) {
+    const re = new Float32Array(N), im = new Float32Array(N);
+    for (let i = 0; i < N; i++) re[i] = (L[start + i] + R[start + i]) * 0.5 * win[i];
+    fft(re, im);
+    const mag = new Float32Array(N / 2);
+    for (let k = 1; k < N / 2; k++) {
+      const p = re[k] * re[k] + im[k] * im[k], f = k * rate / N;
+      mag[k] = p;
+      power[bands.findIndex(b => f < b)] += p; centroidNum += f * p; centroidDen += p;
+    }
+    cols.push(mag);
+  }
+  const total = power.reduce((a, b) => a + b, 0) || 1;
+  if (draw) {
+    const c = $('spec'), g = c.getContext('2d'), w = c.width, h = c.height, img = g.createImageData(w, h), lo = Math.log(40), hi = Math.log(12000);
+    let top = 1e-12; for (const m of cols) for (let k = 1; k < m.length; k++) if (m[k] > top) top = m[k];
+    for (let x = 0; x < w; x++) {
+      const m = cols[Math.min(cols.length - 1, Math.floor(x / w * cols.length))];
+      for (let y = 0; y < h; y++) {
+        const f = Math.exp(lo + (1 - y / h) * (hi - lo)), k = Math.max(1, Math.min(N / 2 - 1, Math.round(f * N / rate)));
+        const v = Math.max(0, Math.min(1, (10 * Math.log10(m[k] / top) + 72) / 72)), o = (y * w + x) * 4;
+        img.data[o] = 255 * Math.min(1, v * 2.2) * v; img.data[o + 1] = 255 * v * v; img.data[o + 2] = 255 * Math.min(1, 0.25 + v * 1.4) * Math.sqrt(v); img.data[o + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }
+  const layers = {};
+  for (const e of log) { const l = layers[e.layer] || (layers[e.layer] = { notes: 0, low: 999, high: 0, pcs: new Set() }); l.notes++; l.low = Math.min(l.low, e.midi); l.high = Math.max(l.high, e.midi); l.pcs.add(e.midi % 12); }
+  return {
+    seconds: +(n / rate).toFixed(1), peak: +db(peak).toFixed(1), rms: +db(rms).toFixed(1), quietestSecond: +Math.min.apply(null, secs).toFixed(1), loudestSecond: +Math.max.apply(null, secs).toFixed(1),
+    leftMinusRight: +(db(Math.sqrt(sumL / n)) - db(Math.sqrt(sumR / n))).toFixed(2), correlation: +(sumLR / Math.sqrt(sumL * sumR || 1)).toFixed(2), dc: +(dc / (2 * n)).toExponential(1),
+    centroidHz: Math.round(centroidNum / (centroidDen || 1)), bands: { sub60: +(100 * power[0] / total).toFixed(1), bass250: +(100 * power[1] / total).toFixed(1), low1k: +(100 * power[2] / total).toFixed(1), mid4k: +(100 * power[3] / total).toFixed(1), high10k: +(100 * power[4] / total).toFixed(1), air: +(100 * power[5] / total).toFixed(2) },
+    layers: Object.keys(layers).map(k => k + ': ' + layers[k].notes + ' notes, ' + nameOf(layers[k].low) + ' to ' + nameOf(layers[k].high)).join(' | '),
+  };
+}
+// Every tuned note must belong to the key it was written in.
+function offKey(log, themeIndex) {
+  const th = Score.THEMES[themeIndex], ok = new Set(Score.MODES[th.mode].map(s => (th.tonic + s) % 12));
+  return log.filter(e => ['pad', 'bass', 'bell', 'arp', 'lead', 'cue'].indexOf(e.layer) >= 0 && !ok.has(e.midi % 12)).length;
+}
+window.bench = { render, measure, offKey, nameOf };
+$('measure').onclick = async () => { $('report').textContent = 'Rendering…'; const r = await render({ seconds: 60 }), m = measure(r.buf, r.log, true); m.offKey = offKey(r.log, +$('floor').value); $('report').textContent = r.theme + '\n' + JSON.stringify(m, null, 2); };
+$('measure-all').onclick = async () => {
+  let text = '';
+  for (let f = 1; f <= 9; f++) { const r = await render({ seconds: 60, set: Object.assign(setting(), { floor: f }) }), m = measure(r.buf, r.log, f === 9); text += f + ' ' + r.theme + ': peak ' + m.peak + ' dB, level ' + m.rms + ' dB, off-key notes ' + offKey(r.log, f) + '\n   ' + m.layers + '\n'; $('report').textContent = text; }
+};
+</script>
+</body>
+</html>
