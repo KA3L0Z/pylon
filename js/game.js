@@ -1091,7 +1091,8 @@ function renderLabResults(res) {
 const nextPaint = () => new Promise(r => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 120); });
 async function run() {
   if (!cur) return;
-  if (busy) { if (animating) World.stop(); return; }
+  if (busy) { if (animating) { replaying = false; skipShow = true; World.stop(); } return; }
+  skipShow = false;
   busy = true;
   closeTrace();
   clearNote();
@@ -1128,12 +1129,14 @@ async function run() {
     }
     $('app').classList.remove('watch');
   } else if (lv.kind === 'sandbox') {
+    await replayRun(lv, code);
     World.mood(res.ok ? 'happy' : 'sad');
     Sfx.play(res.ok ? 'tick' : 'fail');
     bump('lab');
   } else {
     const states = res.error ? [] : res.tests.map(t => t.ok ? 'pass' : t.slow ? 'slow' : 'fail');
-    if (states.length) await World.playTests(states, {});
+    if (states.length) await replayRun(lv, code);
+    if (states.length && cur === lv) await World.playTests(states, { instant: skipShow });
     else { World.resetTests(); World.mood('sad'); Sfx.play('fail'); }
   }
   animating = false;
@@ -1206,12 +1209,98 @@ function solved(lv, res) {
   }, 700);
 }
 
+// What the 3D arena shows for one step of a run: the same reading of the data as the panel under the editor, as plain rows
+// of cells. Three rows at most: the ones that just changed, then the ones something points into.
+function worldRows(s, prev, rel) {
+  const viz = s.viz || [], old = prev && prev.fn === s.fn && prev.depth === s.depth ? new Map((prev.viz || []).map(v => [v.n, v])) : null;
+  const nums = viz.filter(v => v.k === 'num'), numOf = n => { const x = nums.find(v => v.n === n); return x ? x.v : null; };
+  const rows = [];
+  for (const v of viz) {
+    const o = old && old.get(v.n), was = o && o.k === v.k ? o : null;
+    if (v.k === 'seq') {
+      const ptr = nums.filter(p => rel.rel.has(p.n + '>' + v.n) && p.v >= 0 && p.v <= v.len);
+      if (v.t === 'str' && !ptr.length) continue;
+      if (!v.len) { rows.push({ name: v.n, kind: 'seq', cells: [{ t: 'empty', ghost: true, at: [] }], more: 0 }); continue; }
+      const shown = v.items.slice(0, 12), cells = shown.map((t, i) => ({ t, i: String(i), at: ptr.filter(p => p.v === i).map(p => p.n), chg: !!was && (i >= was.items.length || was.items[i] !== t) }));
+      const end = v.len <= 12 ? ptr.filter(p => p.v === v.len).map(p => p.n) : [];
+      if (end.length) cells.push({ t: '', i: String(v.len), at: end, ghost: true });
+      rows.push({ name: v.n, kind: 'seq', cells, more: Math.max(0, v.len - shown.length) });
+    } else if (v.k === 'grid') {
+      if (v.h > 7 || v.w > 11) continue;
+      const hits = rel.grid.filter(x => x.g === v.n).map(x => [numOf(x.r), numOf(x.c)]), cells = [];
+      v.rows.forEach((line, i) => line.forEach((t, j) => cells.push({ t, at: hits.some(p => p[0] === i && p[1] === j) ? ['here'] : [], chg: !!was && !!was.rows[i] && was.rows[i][j] !== undefined && was.rows[i][j] !== t })));
+      rows.push({ name: v.n, kind: 'grid', w: v.w, cells, more: 0 });
+    } else if (v.k === 'map') {
+      const before = was ? new Map(was.entries) : null, shown = v.entries.slice(0, 9);
+      rows.push({ name: v.n, kind: 'map', cells: shown.length ? shown.map(e => ({ k: e[0], t: e[1], at: [], chg: !!before && before.get(e[0]) !== e[1] })) : [{ t: 'empty', ghost: true, at: [] }], more: Math.max(0, v.len - shown.length) });
+    } else if (v.k === 'set') {
+      const before = was ? new Set(was.items) : null, shown = v.items.slice(0, 10);
+      rows.push({ name: v.n, kind: 'set', cells: shown.length ? shown.map(t => ({ t, at: [], chg: !!before && !before.has(t) })) : [{ t: 'empty', ghost: true, at: [] }], more: Math.max(0, v.len - shown.length) });
+    }
+  }
+  // linked lists: every chain a variable can reach, with the variables hovering over the node they hold
+  const held = viz.filter(v => v.k === 'node'), N = s.nodes || {}, ids = Object.keys(N).map(Number);
+  if (held.length && ids.length) {
+    const pointed = new Set(ids.map(id => N[id].next).filter(x => x !== null)), done = new Set(), was = prev && prev.nodes ? prev.nodes : null;
+    let first = true;
+    for (const start of ids.filter(id => !pointed.has(id)).concat(ids)) {
+      if (done.has(start)) continue;
+      const cells = [];
+      let id = start;
+      while (id !== null && N[id] && !done.has(id) && cells.length < 8) {
+        done.add(id);
+        const o = was && was[id];
+        cells.push({ t: N[id].v, at: held.filter(v => v.id === id).map(v => v.n), chg: !!o && (o.next !== N[id].next || o.v !== N[id].v) });
+        id = N[id].next;
+      }
+      if (cells.length) rows.push({ name: first ? 'nodes' : '', kind: 'chain', cells, tail: id === null ? 'None' : '…', more: 0 });
+      first = false;
+    }
+  }
+  if (rows.length <= 3) return rows;
+  const score = r => (r.cells.some(c => c.chg) ? 2 : 0) + (r.cells.some(c => c.at && c.at.length) ? 1 : 0);
+  const keep = new Set(rows.map((r, k) => [score(r), -k, r]).sort((a, b) => b[0] - a[0] || b[1] - a[1]).slice(0, 3).map(x => x[2]));
+  return rows.filter(r => keep.has(r));
+}
+// Before the verdict, the first test is played back in the arena, so that a run is something to watch.
+let replaying = false, skipShow = false;
+async function replayRun(lv, code) {
+  if (S.replay === false || !RealWorld.ok || play.mode === 'interview') return;
+  const lab = lv.kind === 'sandbox', pick = lab ? 0 : Math.max(0, lv.tests.findIndex(t => !t.perf));
+  let t;
+  try { t = Runner.traceRun(lv, code, pick, lab ? labIo() : undefined); } catch (e) { return; }
+  const steps = t.steps.slice(t.start || 0), rel = relations(code), frames = [];
+  let lastKey = '';
+  steps.forEach((s, k) => {
+    const rows = worldRows(s, k ? steps[k - 1] : null, rel);
+    if (!rows.length) return;
+    const key = JSON.stringify(rows.map(r => [r.name, r.cells.map(c => [c.t, c.k, c.at])]));
+    if (key !== lastKey) { frames.push({ line: s.end ? null : s.line, rows }); lastKey = key; }
+  });
+  if (frames.length < 2) return;
+  const stride = Math.ceil(frames.length / 36), shown = Math.ceil(frames.length / stride), ms = Math.max(45, Math.min(110, 1800 / shown));
+  $('stage-note').hidden = false;
+  $('stage-note').textContent = lab ? 'Replay' : 'Replay · test ' + (pick + 1);
+  replaying = true;
+  for (let k = 0; k < frames.length && replaying && cur === lv; k += stride) {
+    World.showData(frames[k].rows);
+    editor.markActive(frames[k].line);
+    await new Promise(r => setTimeout(r, ms));
+  }
+  if (cur === lv) {
+    if (replaying) { World.showData(frames[frames.length - 1].rows); await new Promise(r => setTimeout(r, 300)); }       // a last look at where the data ended up
+    if (cur === lv) { World.clearData(); editor.markActive(null); $('stage-note').hidden = true; }
+  }
+  replaying = false;
+}
+
 // ---------------------------------------------------------------- step-by-step tracer
 let trace = null, traceI = 0, tracePlay = 0, traceTest = 0, traceRel = { rel: new Set(), grid: [] };
 function closeTrace() {
   clearInterval(tracePlay); tracePlay = 0;
   if (!trace) return;
   trace = null;
+  World.clearData();
   $('trace').hidden = true; $('trace').innerHTML = '';
   $('tab-code').classList.remove('tracing');
   $('btn-trace').setAttribute('aria-pressed', 'false');
@@ -1365,6 +1454,7 @@ function renderTraceStep() {
   $('tr-out').hidden = !outText;
   $('tr-out').textContent = outText;
   editor.markActive(s.end ? null : s.line);
+  World.showData(worldRows(s, prev, traceRel));
   if (atEnd && tracePlay) { clearInterval(tracePlay); tracePlay = 0; $('tr-play').textContent = 'Play'; }
 }
 function traceGo(d) { if (!trace) return; traceI += d; Sfx.play('trace'); renderTraceStep(); }
@@ -1462,10 +1552,11 @@ function showMenu() {
     '<h3>Play</h3><div class="rows">' +
     '<div class="row"><span>Graphics<small>Auto picks for your device and steps down if the picture stutters' + (q.now ? '. Now: ' + q.now : '') + '.</small></span><span class="segs">' + ['auto', 'high', 'medium', 'low'].map(v => seg('gfx', v, v[0].toUpperCase() + v.slice(1), S.gfx === v)).join('') + '</span></div>' +
     '<label class="row" for="opt-ac"><span>Suggestions while typing<small>Names, methods and whole lines, each with a reminder of what it does.</small></span><input type="checkbox" id="opt-ac"' + (S.ac ? ' checked' : '') + '></label>' +
+    '<label class="row" for="opt-replay"><span>Replay each run in the arena<small>Before the verdict, the first test is played back on your data: lists as crates, linked lists as chains.</small></span><input type="checkbox" id="opt-replay"' + (S.replay !== false ? ' checked' : '') + '></label>' +
     '<div class="row"><span>Drone replay speed</span><span class="segs">' + [1, 2, 4].map(v => seg('speed', v, v + '×', S.speed === v)).join('') + '</span></div>' +
     '<label class="row" for="opt-unlock"><span>Unlock every level<small>For people who already know the basics and want to jump ahead.</small></span><input type="checkbox" id="opt-unlock"' + (S.unlockAll ? ' checked' : '') + '></label>' +
     '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> take a suggestion, or indent · <kbd>Ctrl</kbd> <kbd>Space</kbd> ask for suggestions · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
-    '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, collections, heapq, itertools, functools, bisect and a few more). Files, input(), async code and third-party packages are not included.</p>' +
+    '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, re, collections, heapq, itertools, functools, bisect and a few more). Files live in memory, and input() reads the lines a test or the Scratchpad\'s Input box gives it. Async code and third-party packages are not included.</p>' +
     '<p class="mute">' + (Cloud.ready ? 'Your progress is saved to your Claude account and in this browser.' : 'Your progress is saved in this browser, on this device.') + ' Music: “Pythonic Ambiance”.</p>' +
     '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>', { wide: true });
 }
@@ -1616,6 +1707,7 @@ function bind() {
     else if (id === 'opt-music') { S.music = e.target.checked; save(); renderHud(); Music.apply(); }
     else if (id === 'opt-unlock') { S.unlockAll = e.target.checked; save(); refreshProgress(); }
     else if (id === 'opt-ac') { S.ac = e.target.checked; save(); editor.setComplete(S.ac); }
+    else if (id === 'opt-replay') { S.replay = e.target.checked; save(); }
     else if (id === 'opt-sfx-vol') Sfx.play('pass');           // let them hear the new level
     else if (id === 'tr-test') startTrace(+e.target.value);
   });

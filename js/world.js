@@ -21,7 +21,7 @@ let nodes = [], zoneInfo = [], pickables = [], levels = [], zones = [];
 let mode = 'hub', selected = 0, nextNode = -1, epoch = 0, cb = {}, time = 0, arenaSpan = 9;
 const cam = { az: 0, y: 0, dist: 27 }, camT = { az: 0, y: 0, dist: 27 };
 const acam = { az: Math.PI / 2, el: 0.9, dist: 12 }, acamT = { az: Math.PI / 2, el: 0.9, dist: 12 }, atarget = new T.Vector3();
-let topY = 0, board = null, crystals = [], lock = null, beam = null;
+let topY = 0, board = null, crystals = [], lock = null, beam = null, aty = null;
 
 // ---------------------------------------------------------------- small helpers
 // Colours are written the way a designer picks them (sRGB) and converted once, because the lighting maths is linear.
@@ -104,7 +104,7 @@ function dispose(obj) {
   obj.traverse(o => {
     if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
     const m = o.material;
-    if (m) { if (own(m.map)) m.map.dispose(); if (own(m.emissiveMap)) m.emissiveMap.dispose(); m.dispose(); }
+    if (m && !(m.userData && m.userData.shared)) { if (own(m.map)) m.map.dispose(); if (own(m.emissiveMap)) m.emissiveMap.dispose(); m.dispose(); }
   });
 }
 // Solid, lit surfaces cast and receive shadows; lights, glows and labels do not.
@@ -455,6 +455,7 @@ function clearArena() {
   arena = new T.Group();
   scene.add(arena);
   board = null; crystals = []; lock = null; beam = null; pip = null;
+  data = null; dataCam = null; aty = null; lockHidden = false;
   mode = 'arena';
   hub.visible = false;
   scene.fog.density = 0.006;
@@ -666,7 +667,7 @@ function setCrystal(i, state) {
   c.glow.material.color.copy(c.mat.emissive);
   c.glow.material.opacity = state === 'idle' ? 0 : state === 'run' ? 0.85 : 0.4;
 }
-W.resetTests = function () { cancelAll(); crystals.forEach((c, i) => setCrystal(i, 'idle')); if (pip) setMood(pip, 'idle'); if (lock) lock.visible = true; };
+W.resetTests = function () { cancelAll(); acamT.az = Math.PI / 2; crystals.forEach((c, i) => setCrystal(i, 'idle')); if (pip) setMood(pip, 'idle'); if (lock) lock.visible = true; };
 function fireBeam(to) {
   const from = new T.Vector3(pip.position.x, pip.position.y + 1.1, pip.position.z), d = to.clone().sub(from), len = d.length();
   beam.scale.set(1, len, 1);
@@ -678,9 +679,17 @@ function fireBeam(to) {
 W.playTests = async function (states, opts) {
   opts = opts || {};
   cancelAll();
+  acamT.az = Math.PI / 2;
   crystals.forEach((c, i) => setCrystal(i, 'idle'));
   if (lock) lock.visible = true;
   setMood(pip, 'idle');
+  if (opts.instant) {                               // the player skipped ahead: show the verdict without the show
+    const won = states.length > 0 && states.every(s => s === 'pass');
+    states.forEach((s, i) => setCrystal(i, s));
+    setMood(pip, won ? 'happy' : 'sad');
+    if (lock && won) lock.visible = false;
+    return true;
+  }
   const my = epoch, alive = () => my === epoch;
   await sleep(0.1);
   for (let i = 0; i < states.length; i++) {
@@ -701,6 +710,9 @@ W.playTests = async function (states, opts) {
     setMood(pip, 'happy');
     sfx('pass');
     burst(new T.Vector3(0, 2.2, 0), 0xffc247, 60, 5, 3);
+    burst(new T.Vector3(0, 2.6, 0), board.col, 70, 7, 2);
+    // the camera swings a little way round PIP and back
+    tween(1.2, k => { if (alive()) acamT.az = Math.PI / 2 + Math.sin(k * Math.PI) * 0.3; }).then(() => { if (alive()) acamT.az = Math.PI / 2; });
     if (lock) { burst(lock.position, 0xff7a6b, 90, 7, 2); lock.visible = false; sfx('boss'); }
     const h0 = pip.rotation.y, y0 = pip.position.y;
     await tween(0.6, k => { if (!alive()) return; pip.rotation.y = h0 + k * TAU; pip.position.y = y0 + Math.sin(k * Math.PI) * 0.6; });
@@ -712,6 +724,147 @@ W.playTests = async function (states, opts) {
   }
   return alive();
 };
+// ---------------------------------------------------------------- arena: the player's data
+// While a run is replayed, the values the code is working on stand in the arena as crates: a list is a row of them,
+// a dictionary a row of pairs, a grid a wall, a linked list a chain of spheres. Names that point into a row hover above
+// the crate they point at, and the crate that just changed is the one PIP fires at.
+const MONO = "'JetBrains Mono', Consolas, 'Courier New', monospace";
+const INK = '#eef1ff', MUTE = '#8d97c9', AMBER = '#ffc247';
+const labelCache = new Map();
+let data = null, dataCam = null, dataGeo = null, dataBody = null, lockHidden = false;
+function labelMat(text, color, weight, wide) {
+  wide = wide || 1;                                  // a long label gets a wider strip instead of smaller letters
+  const key = color + '|' + weight + '|' + wide + '|' + text;
+  let m = labelCache.get(key);
+  if (m) return m;
+  if (labelCache.size > 600) { for (const old of labelCache.values()) { old.map.dispose(); old.dispose(); } labelCache.clear(); }
+  const c = document.createElement('canvas');
+  c.width = Math.round(256 * wide); c.height = 128;
+  const g = c.getContext('2d'), room = c.width - 20;
+  let size = 78;
+  g.font = weight + ' ' + size + 'px ' + MONO;
+  const w = g.measureText(text).width;
+  if (w > room) { size = Math.max(20, Math.floor(size * room / w)); g.font = weight + ' ' + size + 'px ' + MONO; }
+  g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, c.width / 2, 68);
+  m = new T.MeshBasicMaterial({ map: canvasTex(c), transparent: true, depthWrite: false, toneMapped: false });
+  m.userData.shared = true;
+  labelCache.set(key, m);
+  return m;
+}
+function dataGeos() {
+  if (dataGeo) return dataGeo;
+  const share = g => { g.userData.shared = true; return g; }, box = share(new T.BoxGeometry(0.62, 0.62, 0.24));
+  dataGeo = { box, edge: share(new T.EdgesGeometry(box)), face: share(new T.PlaneGeometry(0.6, 0.3)), small: share(new T.PlaneGeometry(0.42, 0.21)), tag: share(new T.PlaneGeometry(0.72, 0.36)),
+    name: share(new T.PlaneGeometry(1.5, 0.75)), cone: share(new T.ConeGeometry(0.075, 0.15, 4)), ball: share(new T.SphereGeometry(0.33, 24, 16)), link: share(new T.CylinderGeometry(0.028, 0.028, 1, 6)),
+    tip: share(new T.ConeGeometry(0.085, 0.2, 6)) };
+  dataBody = std(0x0d1436, { roughness: 0.28, metalness: 0.55, envMapIntensity: 1.1 });
+  dataBody.userData.shared = true;
+  return dataGeo;
+}
+// The camera makes room for the data while it is shown, and goes back when it is taken away.
+function frameData(on) {
+  if (on) {
+    if (!dataCam) dataCam = { y: atarget.y, dist: acamT.dist, el: acamT.el };
+    aty = 2.9; acamT.dist = fitDist(6.3, 0.3); acamT.el = 0.3;
+    if (lock && lock.visible) { lock.visible = false; lockHidden = true; }          // the boss lock would stand behind the data
+  } else {
+    if (dataCam) { aty = dataCam.y; acamT.dist = dataCam.dist; acamT.el = dataCam.el; dataCam = null; }
+    if (lockHidden && lock) lock.visible = true;
+    lockHidden = false;
+  }
+}
+W.clearData = function () {
+  if (data) { if (arena) arena.remove(data.group); dispose(data.group); data = null; }
+  frameData(false);
+};
+// rows: [{ name, kind: 'seq' | 'map' | 'set' | 'grid' | 'chain', cells: [{ t, k, i, at: [names], chg, ghost }], w, more, tail }]
+W.showData = function (rows) {
+  if (mode !== 'arena' || !arena || !board || !beam) return;
+  if (data) { arena.remove(data.group); dispose(data.group); data = null; }
+  if (!rows || !rows.length) { frameData(false); return; }
+  const G = dataGeos(), group = new T.Group(), col = board.col, hot = [];
+  const edgeMat = new T.LineBasicMaterial({ color: col.clone().multiplyScalar(0.8), toneMapped: false }), edgeAt = new T.LineBasicMaterial({ color: lin(0xffc247), toneMapped: false });
+  const edgeHot = new T.LineBasicMaterial({ color: lin(0xffffff), toneMapped: false }), edgeDim = new T.LineBasicMaterial({ color: lin(0x3a4686), toneMapped: false });
+  const hotBody = std(0x0d1436, { emissive: col, emissiveIntensity: 0.9, roughness: 0.28, metalness: 0.55 }), ballMat = std(0x10183f, { emissive: col, emissiveIntensity: 0.22, roughness: 0.2, metalness: 0.5, envMapIntensity: 1.2 });
+  const linkMat = basic(col), tagHex = '#' + new T.Color(col).convertLinearToSRGB().getHexString();
+  const plane = (geo, text, color, weight, x, y, z, s, wide) => {
+    const m = new T.Mesh(geo, labelMat(text, color, weight, wide || 1));
+    m.position.set(x, y, z);
+    if (s) m.scale.setScalar(s);
+    if (wide && wide !== 1) m.scale.x *= wide;
+    group.add(m);
+    return m;
+  };
+  const tags = (names, x, y) => {
+    if (!names || !names.length) return;
+    const text = names.join(', ');
+    plane(G.tag, text, AMBER, '700', x, y + 0.66, 0.02, 1, Math.min(3.5, Math.max(1, text.length / 5)));
+    const cone = new T.Mesh(G.cone, edgeAt);
+    cone.position.set(x, y + 0.42, 0); cone.rotation.x = Math.PI;
+    group.add(cone);
+  };
+  const crate = (cell, x, y, s, wide) => {
+    const pointed = cell.at && cell.at.length;
+    if (!cell.ghost) { const body = new T.Mesh(G.box, cell.chg ? hotBody : dataBody); body.position.set(x, y, 0); body.scale.set(s * wide, s, s); group.add(body); if (cell.chg) hot.push(body); }
+    const edge = new T.LineSegments(G.edge, cell.ghost ? edgeDim : cell.chg ? edgeHot : pointed ? edgeAt : edgeMat);
+    edge.position.set(x, y, 0); edge.scale.set(s * wide, s, s);
+    group.add(edge);
+  };
+  const blocks = rows.slice(0, 3).map(r => {
+    const grid = r.kind === 'grid', chain = r.kind === 'chain', n = r.cells.length + (r.more ? 1 : 0) + (chain ? 1 : 0), cols = grid ? r.w : Math.max(1, n), lines = grid ? Math.ceil(r.cells.length / r.w) : 1;
+    // a row of long values gets wider crates, so the letters stay readable
+    const longest = r.cells.reduce((a, c) => Math.max(a, String(c.t || '').length, String(c.k || '').length), 1), wide = grid || chain ? 1 : Math.min(2.7, Math.max(1, longest / 4.4));
+    const pitch = chain ? 0.98 : grid ? 0.66 : 0.62 * wide + 0.12;
+    return { r, grid, cols, lines, pitch, wide, w: cols * pitch + 1.75, h: grid ? lines * 0.66 + 0.3 : 1.5 };
+  });
+  const totalH = blocks.reduce((a, b) => a + b.h, 0), maxW = Math.max.apply(null, blocks.map(b => b.w)), scale = Math.min(1.9, 7.4 / maxW, 4.4 / totalH);
+  let top = totalH / 2;
+  for (const b of blocks) {
+    const r = b.r, left = -b.w / 2 + 1.75, s = b.grid ? 0.86 : 1, name = r.name || '', nameWide = Math.min(1.7, Math.max(1, name.length / 6));
+    plane(G.name, name, INK, '600', left - 0.2 - 0.75 * nameWide, b.grid ? top - b.h / 2 : top - 0.76, 0, 1, nameWide);
+    r.cells.forEach((cell, k) => {
+      const cx = left + (b.grid ? k % r.w : k) * b.pitch + b.pitch / 2, cy = b.grid ? top - 0.15 - 0.33 - Math.floor(k / r.w) * 0.66 : top - 0.76;
+      if (r.kind === 'chain') {
+        const ball = new T.Mesh(G.ball, cell.chg ? hotBody : ballMat);
+        ball.position.set(cx, cy, 0);
+        group.add(ball);
+        if (cell.chg) hot.push(ball);
+        plane(G.face, cell.t, INK, '600', cx, cy, 0.34, 0.92);
+        tags(cell.at, cx, cy);
+        const link = new T.Mesh(G.link, linkMat);                      // the arrow to whatever comes next
+        link.rotation.z = Math.PI / 2; link.scale.y = b.pitch - 0.78; link.position.set(cx + b.pitch / 2 - 0.03, cy, 0);
+        const tip = new T.Mesh(G.tip, linkMat);
+        tip.rotation.z = -Math.PI / 2; tip.position.set(cx + b.pitch - 0.42, cy, 0);
+        group.add(link, tip);
+        return;
+      }
+      crate(cell, cx, cy, s, b.wide);
+      if (r.kind === 'map') { plane(G.face, cell.k, tagHex, '600', cx, cy + 0.15, 0.125, 0.86, b.wide); plane(G.face, cell.t, INK, '600', cx, cy - 0.14, 0.125, 0.86, b.wide); }
+      else if (cell.t !== '') plane(G.face, cell.t, cell.ghost ? MUTE : INK, '600', cx, cy, 0.125 * s, s * (b.wide === 1 && cell.t.length <= 3 ? 1.3 : 1), b.wide);
+      if (!b.grid) { if (cell.i !== undefined) plane(G.small, cell.i, MUTE, '500', cx, cy - 0.47, 0); tags(cell.at, cx, cy); }
+    });
+    const endX = left + r.cells.length * b.pitch + b.pitch / 2;
+    if (r.kind === 'chain') plane(G.face, r.tail || 'None', MUTE, '600', endX - 0.1, top - 0.76, 0, 1.05);
+    else if (r.more) plane(G.face, '+' + r.more, MUTE, '600', endX - b.pitch / 2 + 0.4, top - 0.76, 0, 0.9);
+    top -= b.h;
+  }
+  group.scale.setScalar(scale);
+  group.position.set(0, 3.15 + totalH * scale / 2, -1.2);
+  arena.add(group);
+  lit(group);
+  data = { group };
+  frameData(true);
+  // the crate that just changed swells for a moment, and PIP marks it
+  if (hot.length) {
+    const p = hot[0].position.clone().multiplyScalar(scale).add(group.position);
+    fireBeam(p);
+    burst(p, col, 7, 1.5, 0.4);
+    const base = hot.map(h => h.scale.clone());
+    tween(0.3, k => { hot.forEach((h, n) => h.scale.copy(base[n]).multiplyScalar(1 + 0.32 * (1 - k))); }, easeOut);
+  }
+};
+
 W.stop = cancelAll;
 
 // ---------------------------------------------------------------- camera, lights, input, loop
@@ -723,6 +876,7 @@ function placeCamera(dt) {
     camera.position.set(c * Math.cos(az), cam.y + 0.8 + Math.sin(el) * cam.dist, c * Math.sin(az));
     camera.lookAt(5.2 * Math.cos(cam.az), cam.y - 1.9, 5.2 * Math.sin(cam.az));
   } else {
+    if (aty !== null) atarget.y += (aty - atarget.y) * s;
     acam.az += (acamT.az - acam.az) * s; acam.el += (acamT.el - acam.el) * s; acam.dist += (acamT.dist - acam.dist) * s;
     const c = Math.cos(acam.el) * acam.dist, az = acam.az + sway * 1.6;
     camera.position.set(atarget.x + c * Math.cos(az), atarget.y + Math.sin(acam.el) * acam.dist, atarget.z + c * Math.sin(az));
