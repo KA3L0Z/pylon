@@ -76,6 +76,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await until(() => document.getElementById('app').classList.contains('mode-level'));
     await sleep(300);
   };
+  // A scene of the story opens a floor: read it line by line to its end (taking the first answer where one is asked).
+  const playScene = async must => {
+    try { await page.waitForFunction(() => !!document.querySelector('#modal-body .scene'), { timeout: 4000, polling: 100 }); }
+    catch (e) { if (must) throw new Error('no scene opened the floor'); return 0; }
+    let clicks = 0;
+    while (clicks < 60 && await page.evaluate(() => !!document.querySelector('#modal-body .scene'))) {
+      await page.evaluate(() => { const b = document.querySelector('#modal-body [data-sc]') || document.getElementById('sc-next'); if (b) b.click(); });
+      clicks++;
+      await sleep(40);
+    }
+    expect(clicks < 60, 'the scene never came to an end');
+    return clicks;
+  };
   const skipTour = async must => {
     try { await page.waitForFunction(() => !document.getElementById('coach').hidden, { timeout: 4000, polling: 100 }); }
     catch (e) { if (must) throw new Error('the tour did not appear'); return false; }
@@ -99,6 +112,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await seen('#card-enter');
     await click('#card-enter');
     await until(() => document.getElementById('app').classList.contains('mode-level'));
+    expect(await playScene(true) > 3, 'the opening scene was over in a click');
     await skipTour(true);
     await page.evaluate(() => { const low = document.querySelector('#robot-ctl [data-speed="4"]'); if (low) low.click(); });
     // the command buttons write one command per line (two clicks once gave "move()move()" and a syntax error)
@@ -125,7 +139,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     say('the first code level, with the second tour');
     const code = levels.filter(l => l.kind === 'code');
     await openLevel(code[0].id);
+    await playScene(true);
     await skipTour(true);
+    // a mission opens on its own briefing, with a line of story and the tools it may call for
+    expect(await page.evaluate(() => !document.getElementById('tab-lesson').hidden && !!document.querySelector('#tab-lesson .mission') && /mission briefing/i.test(document.getElementById('brief').textContent)), 'the first code level did not open on its mission briefing');
+    await click('#go-code');
     if (world) { const c = await caption(); expect(c.on && c.text.length > 20, 'the first code level opened without a scene and its caption'); }
     expect(await run() === 'Not yet', 'the starting code of a code level passed its tests');
     if (world) expect((await caption()).kind === 'bad', 'after a failing run the caption of the scene is not marked as wrong');

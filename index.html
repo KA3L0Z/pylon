@@ -178,6 +178,18 @@ p { margin: 0; }
 @media (pointer: coarse) and (max-width: 900px) { #tab-code:not(:has(#editor:focus-within)) .keys { display: none; } }          /* the quick keys belong to typing: they make room when the keyboard is away */
 #app.kb #tab-code:has(#term-in:focus) #feedback { display: flex; max-height: none; flex: 1 1 auto; }
 #app.kb #tab-code:has(#term-in:focus) :is(#editor, .keys, .ac-strip, .runbar, #hints, #results) { display: none; }
+/* the story: a line of plot above each briefing, and scenes that play in the dialog */
+.mission { margin: 0 0 16px; padding: 10px 14px; font: 400 15.5px/1.55 var(--body); color: var(--ink-2); background: var(--deck-2); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; }
+.scene .sc-lines { max-height: min(52vh, 420px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin: 12px 0 16px; padding-right: 4px; }
+.sc-line { margin: 0; font: 400 16.5px/1.55 var(--body); color: var(--ink); }
+.sc-line b { display: block; margin-bottom: 2px; font: 600 11.5px/1.2 var(--display); letter-spacing: .18em; text-transform: uppercase; color: var(--mute); }
+.sc-tell { color: var(--ink-2); font-style: italic; }
+.sc-pip { padding-left: 12px; border-left: 3px solid #4fe3d0; } .sc-pip b { color: #4fe3d0; }
+.sc-reyes { padding-left: 12px; border-left: 3px solid var(--amber); } .sc-reyes b { color: var(--amber); }
+.sc-voice { padding-left: 12px; border-left: 3px solid var(--fail); font-family: var(--mono); font-size: 14.5px; } .sc-voice b { color: var(--fail); }
+.sc-you { padding-left: 12px; border-left: 3px solid var(--line-2); }
+.sc-q { margin: 0 0 10px; font: 600 15px/1.4 var(--body); color: var(--ink); }
+.sc-opts { flex-direction: column; align-items: stretch; } .sc-opts .btn { text-align: left; white-space: normal; height: auto; min-height: 44px; padding: 10px 14px; line-height: 1.35; text-transform: none; letter-spacing: 0; font: 500 15px/1.35 var(--body); }
 /* stage overlays inside a level */
 #stage-note { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3; font: 600 14px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; background: #0a0f20f2; border: 1px solid var(--line-2); border-radius: 2px; padding: 9px 13px; }
 #robot-ctl { position: absolute; left: var(--gl); bottom: max(14px, env(safe-area-inset-bottom, 0px)); z-index: 3; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -814,6 +826,7 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/levels-z9.js?v=fba3828b"></script>
 <script src="js/toolcards.js?v=bbd2f717"></script>
 <script src="js/story.js?v=d0085020"></script>
+<script src="js/saga.js?v=12da5cfd"></script>
 <script src="js/curriculum.js?v=9c74b978"></script>
 <script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
@@ -821,7 +834,7 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/scenes.js?v=a55b244b"></script>
 <script src="js/world.js?v=8f903d0d"></script>
 <script src="js/score.js?v=088221a0"></script>
-<script src="js/game.js?v=8647c9c3"></script>
+<script src="js/game.js?v=dfc59a8c"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", function () {
   navigator.serviceWorker.register("sw.js").catch(function () { /* no offline copy here: the game works without one */ });

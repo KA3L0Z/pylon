@@ -11,7 +11,7 @@ Pylon is a free browser game that teaches Python, from the first function call t
 ## What is in it
 
 - **77 levels on 9 floors.** Floor 1 is drone puzzles: calls, loops, conditions and your own functions. Floors 2 to 9 are code levels, and 46 of them are well-known interview problems such as Two Sum, Valid Parentheses, Merge Intervals, LRU Cache, Course Schedule and Trapping Rain Water.
-- **Lessons come one level early.** Every level ends with the briefing for the next one. The level itself explains nothing and never says which tools it needs: you were shown them, and choosing among them is the exercise.
+- **Every mission opens on its briefing.** The briefing shows the tools the mission may call for, each one at work on other data, with examples you can predict and run. It says how a tool is used, never which ones the task needs or how to combine them: that part is the exercise.
 - **A Toolbox of 184 reference cards.** One card per function, method or piece of syntax: what it does, how to call it, and an example with its output. Cards join your Toolbox when you are briefed on them, and you can search it at any time.
 - **Craft marks.** A passing answer is also read for how it is written. Four marks, each worth extra XP: concise, clear names, Pythonic, tidy. The notes say which line to change and why.
 - **Real Python, inside the page.** Your code runs on MiniPy, an interpreter for a subset of Python written for this game. Your code never leaves the browser.
@@ -19,7 +19,8 @@ Pylon is a free browser game that teaches Python, from the first function call t
 - **Every code level has a scene, and your code drives it.** One of the level's tests stands in the arena: power cells in front of a gate, a bridge with a plank for each bracket, a bar for each day's price, a grid of powered tiles, a chain, a tree, a wall for what a program prints. When you run your code, PIP acts out what it returned. The right two cells open the gate and the wrong two jam it. Answer `True` where the answer is `False` and the bridge gives way under PIP. There are ten kinds of scene, and two levels in a row never use the same one. A caption under the scene says what went wrong in that test's own terms, and a row of footlights gives the verdict on every test.
 - **A terminal.** Under the Run button, every run is written down the way Python's own prompt would show it: each test call after `>>>`, what the code printed, the value it returned, and the full traceback with the line of your file when it raises. Type a line of your own at the prompt to call your functions with any input; names and values stay between lines.
 - **Step through, with a picture of your data.** Replay any test one line at a time. Lists are drawn as rows of cells with the index variables pointing into them, dictionaries as pairs, linked lists as chains of nodes, and whatever changed is lit. In the 3D view the same picture floats above the scene as crates.
-- **A story.** The last chief engineer left one log entry on every floor, about the habit that floor teaches and why the tower went dark. An entry is recovered when its floor comes back online, and the summit has an ending. PIP, the drone, comments along the way, and every rank unlocks a new paint for it. Each floor's arena has a look of its own.
+- **A plot with choices.** The tower was the only link to the colony ship Meridian, and its chief engineer shut it down on purpose. Every mission has a line of story that gives the task a reason, a scene plays when a floor begins and when it comes back online, and three choices on the way up change what is said and how it ends.
+- **A tower log.** The last chief engineer left one log entry on every floor, about the habit that floor teaches and why the tower went dark. An entry is recovered when its floor comes back online, and the summit has an ending. PIP, the drone, comments along the way, and every rank unlocks a new paint for it. Each floor's arena has a look of its own.
 - **An editor that helps.** Suggestions while you type, each with a one-line reminder of what the function or method does, and syntax problems flagged before you run.
 - **Speed tests.** Some tests count the steps your code takes, so a slow algorithm fails even when its answers are right.
 - **Daily review.** A solved level comes back after 1 day, then 3, 7, 14, 30 and 60, to be written again from the starting code.
@@ -96,6 +97,7 @@ Then open http://localhost:8000/.
 | `js/toolcards.js` | Reference cards for the levels whose files do not carry their own |
 | `js/craft.js` | The craft marks: reads a solution through MiniPy's parser and judges length, names, idiom and layout |
 | `js/bughunt.js` | The bug hunt: finds the places in a solution where one small slip can be made, and makes it |
+| `js/saga.js` | The plot: a line of story for every level, the scenes of each floor, the choices and the two endings |
 | `js/story.js` | The tower log, the ending, and everything PIP says |
 | `js/complete.js` | What the editor suggests at the caret, and the one-line reminders |
 | `js/editor.js` | The code editor |
@@ -134,6 +136,7 @@ The icons are drawn by `node tools/make_icons.js`, with no image library.
     node tools/check_curriculum.js    # the course as a whole, in the order the player meets it
     node tools/check_bughunt.js       # a bug can be planted in nearly every code level, and the tests catch it
     node tools/check_scenes.js        # every code level has a scene: right answers play to a good end, wrong ones do not
+    node tools/check_story.js         # every level has its line of story, and every scene can be played to its end
     node tools/check_terminal.js      # the terminal writes every level down, and its prompt answers as Python's does
 
 `check_curriculum.js` enforces the teaching rules. Every function, method and piece of syntax a model solution uses must have a reference card on that level or an earlier one. Every card example and lesson example (301 of them) must print the same thing in MiniPy and in CPython. Every model solution must earn all four craft marks, and a set of deliberately sloppy snippets must lose the right ones.

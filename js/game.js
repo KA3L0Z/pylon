@@ -13,7 +13,7 @@ const Runner = window.PylonRunner, RealWorld = window.PylonWorld || { ok: false 
 const World = new Proxy({}, { get: (_, k) => (RealWorld.ok && typeof RealWorld[k] === 'function') ? RealWorld[k] : (/^play/.test(k) ? () => Promise.resolve(true) : () => undefined) });
 
 // The floors and the order of the levels come from js/curriculum.js; the level files only describe the levels.
-const Curriculum = window.PylonCurriculum, Craft = window.PylonCraft || null, Scenes = window.PylonScenes || null, Terminal = window.PylonTerminal || null;
+const Curriculum = window.PylonCurriculum, Craft = window.PylonCraft || null, Scenes = window.PylonScenes || null, Terminal = window.PylonTerminal || null, Saga = window.PYLON_SAGA || null;
 const ZONES = Curriculum.FLOORS.map((f, k) => ({ n: k + 1, name: f.name, color: f.color, title: f.title, blurb: f.blurb }));
 const LAB = { n: 0, name: 'Scratchpad', color: '#2ee6c8' };
 const RANKS = ['Amateur'].concat(ZONES.map(z => z.title));
@@ -457,7 +457,7 @@ const BADGES = [
   { id: 'offer', name: 'Offer Letter', desc: 'Solve every problem of an on-site interview round.', test: c => c.n('ivOnsite') >= 1 },
   { id: 'loop', name: 'Senior Loop', desc: 'Solve every problem of the senior interview loop.', test: c => c.n('ivSenior') >= 1 },
   { id: 'classicAll', name: 'The Whole Shelf', desc: 'Solve every classic interview problem in the tower.', test: c => CLASSICS > 0 && c.classics >= CLASSICS },
-  { id: 'briefs', name: 'Well Briefed', desc: 'Read 20 briefings for the level ahead.', test: c => c.n('briefs') >= 20 },
+  { id: 'briefs', name: 'Well Briefed', desc: 'Read 20 mission briefings.', test: c => c.n('briefs') >= 20 },
   { id: 'craft1', name: 'Clean Code', desc: 'Earn all four craft marks on one level.', test: c => c.craft4 >= 1 },
   { id: 'craft10', name: 'Craftsman', desc: 'Earn all four craft marks on 10 levels.', test: c => c.craft4 >= 10 },
   { id: 'bugs', name: 'Exterminator', desc: 'Repair 10 planted bugs in the bug hunt.', test: c => c.n('bugs') >= 10 },
@@ -877,6 +877,51 @@ const Term = (() => {
   };
 })();
 $('term-in').addEventListener('keydown', Term.key);
+// A scene of the story: its lines come one at a time, and now and then a choice is asked and remembered.
+const Scene = (() => {
+  let run = null;
+  const saga = () => { S.saga = S.saga && typeof S.saga === 'object' ? S.saga : {}; S.saga.seen = S.saga.seen || {}; return S.saga; };
+  const row = l => '<p class="sc-line sc-' + (l.w || 'tell') + '">' + (l.w ? '<b>' + esc(Saga.WHO[l.w] || '') + '</b>' : '') + esc(l.t) + '</p>';
+  function draw(choice) {
+    const r = run, last = !choice && r.k >= r.lines.length;
+    modal('<div class="scene"><div class="eyebrow">' + esc(r.title) + '</div><div class="sc-lines" id="sc-lines">' + r.shown + '</div>' +
+      (choice ? '<p class="sc-q">' + esc(choice.q) + '</p><div class="done-actions sc-opts">' + choice.opts.map((o, n) => '<button type="button" class="btn"' + (n ? '' : ' data-focus') + ' data-sc="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</div>'
+        : '<div class="done-actions"><button type="button" class="btn primary" data-focus id="sc-next">' + (last ? 'Continue' : 'Next') + '</button>' + (last ? '' : '<button type="button" class="btn ghost" id="sc-skip">Skip</button>') + '</div>') + '</div>', { onClose: () => { if (run === r) { run = null; if (r.after) r.after(); } } });
+    const box = $('sc-lines');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+  // Say the next line that applies (or all of them up to the next choice), then show where the scene stands.
+  function step(all) {
+    const r = run, s = saga();
+    let said = false;
+    while (r.k < r.lines.length) {
+      const l = r.lines[r.k];
+      if (l.choice) { draw(l); return; }
+      r.k++;
+      if (l.on && s[l.on] !== l.is) continue;
+      r.shown += row(l); said = true;
+      if (!all) break;
+    }
+    if (!said && r.k >= r.lines.length && r.done) { closeModal(); return; }
+    r.done = r.k >= r.lines.length;
+    draw(null);
+  }
+  return {
+    seen: id => !Saga || !Saga.SCENES[id] || !!(S.saga && S.saga.seen && S.saga.seen[id]),
+    play(id, after, title) {
+      const lines = Saga && Saga.SCENES[id];
+      if (!lines) { if (after) after(); return; }
+      saga().seen[id] = true;
+      save();
+      Sfx.play('modal');
+      run = { lines, k: 0, shown: '', after, done: false, title: title || (/^f\d/.test(id) ? 'Floor ' + id[1] + ' · ' + ZONES[id[1] - 1].name : 'The summit') };
+      step(false);
+    },
+    next() { if (!run) return; if (run.done) closeModal(); else step(false); },
+    skip() { if (run) step(true); },
+    pick(value) { if (!run) return; const l = run.lines[run.k]; if (!l || !l.choice) return; saga()[l.choice] = value; save(); run.shown += '<p class="sc-line sc-you"><b>You</b>' + esc((l.opts.find(o => o[0] === value) || ['', ''])[1]) + '</p>'; run.k++; step(false); },
+  };
+})();
 let shownMap = 0, staged = null;                     // staged: the scene a code level is showing (js/scenes.js), or null
 const sceneMeta = lv => { const z = zoneOf(lv); return { color: z.color, floor: z.n, boss: !!lv.boss, tests: lv.tests.length, perf: lv.tests.map(t => !!t.perf) }; };
 // The caption under a scene: the call that is on stage, and a line about what is happening there.
@@ -941,12 +986,12 @@ function enter(lv, opts) {
   $('p-name').textContent = cur.title;
   $('btn-back').textContent = iv ? 'End' : '‹ Tower';
   document.querySelector('.tabs').hidden = !normal;
-  $('tab-btn-lesson').textContent = lab ? 'About' : cur.kind === 'code' ? 'Briefing' : 'Lesson';
+  $('tab-btn-lesson').textContent = lab ? 'About' : 'Briefing';
   $('tab-btn-solution').hidden = lab;
   toolsFor = null;
   $('tab-tools').innerHTML = '';
   if (normal) renderLesson(); else $('tab-lesson').innerHTML = '';
-  { const nx = lab ? null : nextOf(cur); $('tab-btn-lesson').classList.toggle('dot', normal && !!nx && nx.kind === 'code' && s.solved && !s.brief); }
+  $('tab-btn-lesson').classList.toggle('dot', normal && !lab && cur.kind === 'code' && !s.brief);
   $('task-body').innerHTML = (hunt ? '<p class="bugnote"><b>Bug hunt.</b> This is ' + (hunt.mine ? 'your own answer' : 'the model solution') + ' with one small thing changed. Find the line and repair it. <b>Run</b> shows which tests fail now. <b>Step through</b> shows where a value goes wrong.</p>' : '') +
     cur.task + (iv && cur.classic ? '<p class="mute">Known as: ' + esc(cur.classic) + '</p>' : '');
   hl($('task-body'));
@@ -971,12 +1016,13 @@ function enter(lv, opts) {
   setStatus('');
   renderIvBar();
   renderHints(); renderSolution(); renderPanelStars(); updateLineCount();
-  showTab(!normal || lab || cur.kind === 'code' || s.read || s.solved || s.tries ? 'code' : 'lesson');
+  showTab(!normal || lab || s.solved || s.tries || (cur.kind === 'code' ? s.brief : s.read) ? 'code' : 'lesson');          // a mission opens on its briefing the first time
   buildArena();
   Term.reset(cur);
   hush();
   greet(cur);
-  Tour.maybe(cur);
+  const opening = 'f' + cur.zone + 's';
+  if (normal && !lab && cur.order === 1 && !Scene.seen(opening)) Scene.play(opening, () => { if (cur === lv) Tour.maybe(cur); }); else Tour.maybe(cur);
   save();
 }
 function closeLevel(celebrate) {
@@ -1020,8 +1066,8 @@ function showTab(name) {
   if (name === 'lesson' && normal && cur.kind !== 'sandbox') {
     const s = st(cur.id), next = nextOf(cur);
     // On a drone level the briefing sits below the level's own lesson, so opening the tab is not yet reading it.
-    if (next && next.kind === 'code' && !s.brief && (cur.kind === 'code' || s.solved)) { s.brief = true; bump('briefs'); save(); checkBadges(); $('tab-btn-lesson').classList.remove('dot'); }
-    else if (cur.kind === 'code' || s.brief) $('tab-btn-lesson').classList.remove('dot');
+    if (cur.kind === 'code' && !s.brief) { s.brief = true; bump('briefs'); save(); checkBadges(); }
+    $('tab-btn-lesson').classList.remove('dot');
   }
   if (name === 'solution' && cur && cur.kind !== 'sandbox' && play.mode === 'normal') {
     const s = st(cur.id);
@@ -1114,22 +1160,26 @@ function toggleCard(head) {
 function renderLesson() {
   const el = $('tab-lesson'), lab = cur.kind === 'sandbox', i = INDEX[cur.id], next = lab ? null : nextOf(cur), s = st(cur.id), teach = !!next && next.kind === 'code';
   let h = '<div class="chips">' + chips(cur) + '</div>';
+  if (!lab && Saga && Saga.MISSIONS[cur.id]) h += '<p class="mission">' + esc(Saga.MISSIONS[cur.id]) + '</p>';
   if (lab || cur.kind === 'robot') {
     h += cur.lesson + (lab ? '' : '<div class="taskcard"><h3>Your task</h3>' + cur.task + '</div>') + '<button type="button" class="btn primary" id="go-code">Open the editor</button>';
   } else {
-    h += '<div class="now"><p><b>This level explains nothing about itself.</b> You were briefed for it one level ago, and every tool you have been shown is in <b>Tools</b>. Which of them the task needs is for you to work out.</p>' +
-      '<div class="now-actions"><button type="button" class="btn primary" id="go-code">Open the editor</button><button type="button" class="btn" id="go-tools">Open Tools</button></div>' +
-      '<details class="recap"><summary>Read the briefing for this level again</summary><div id="recap-body"></div></details></div>';
+    // The briefing for THIS mission: the tools it may call for, each shown at work on other data. It says how a tool is
+    // used, never which ones this task needs or how to put them together.
+    h += '<section class="brief" id="brief"><div class="eyebrow">Mission briefing</div><h3>' + esc(cur.concept) + '</h3>' +
+      '<p class="brief-why">What this mission may call for, shown at work on other data. Which of it the task needs, and how the pieces fit together, is yours to work out.</p>' +
+      '<div id="brief-body">' + cur.lesson + '</div>' + cardsHtml(cur, true, 'Tools for this mission') +
+      '<div class="now-actions"><button type="button" class="btn primary" id="go-code">Open the editor</button><button type="button" class="btn" id="go-tools">All your tools</button></div></section>';
   }
-  if (teach) {
+  if (false) {
     h += '<section class="brief" id="brief"><div class="eyebrow">Briefing for the next level</div><h3>' + esc(next.concept) + '</h3>' +
       '<p class="brief-why">Read this before you move on. “' + esc(next.title) + '” will need what is on this page, and it will not say which part.</p>' +
       '<div id="brief-body">' + next.lesson + '</div>' + cardsHtml(next, true, 'New in your Toolbox') +
       '<div class="now-actions"><button type="button" class="btn' + (s.solved ? ' primary' : '') + '" id="brief-next"' + (isUnlocked(i + 1) ? '' : ' disabled') + '>' + (isUnlocked(i + 1) ? 'Go to “' + esc(next.title) + '”' : 'Solve this level first') + '</button></div></section>';
-  } else if (!lab && !next) h += '<section class="brief"><div class="eyebrow">Top of the tower</div><p>There is no next briefing. Everything this level needs, you have.</p></section>';
+  }
   el.innerHTML = h;
   hl(el);
-  if (teach) addExamples($('brief-body'), next);
+  if (!lab && cur.kind === 'code') addExamples($('brief-body'), cur);
   const recap = el.querySelector('.recap');
   if (recap) recap.addEventListener('toggle', () => {
     if (!recap.open || recap.dataset.done) return;
@@ -1144,7 +1194,7 @@ function reachIndex() {
   let far = -1;
   LEVELS.forEach((l, i) => { if (isSolved(i)) far = i; });
   const here = cur && INDEX[cur.id] !== undefined ? INDEX[cur.id] : 0;
-  return Math.min(LEVELS.length - 1, Math.max(far + 1, here) + 1);
+  return Math.min(LEVELS.length - 1, Math.max(far + 1, here));          // a level's tools arrive with its own briefing
 }
 let toolsFor = null;
 function renderTools() {
@@ -1475,7 +1525,7 @@ function solved(lv, res) {
   haptic([20, 40, 20]);
   renderPanelStars(); renderSolution(); renderHints();
   toolsFor = null;
-  if (play.mode === 'normal' && cur === lv) { const nx = nextOf(lv); renderLesson(); $('tab-btn-lesson').classList.toggle('dot', !!nx && nx.kind === 'code' && !s.brief); }
+  if (play.mode === 'normal' && cur === lv) renderLesson();
   const after = rankIndex(), i = INDEX[lv.id];
   if (after > before) applyPaint();                // a paint that was waiting for this rank goes on now
   World.setProgress(progressList(), nextIndex());
@@ -1503,12 +1553,13 @@ function solved(lv, res) {
     if (justLit) h += logHtml(z.n - 1, z.color);
     else h += pipLine(pickLine(stars < 3 ? Story.LINES.help : res.craft && res.craftOwn && res.craft.earned === 4 ? Story.LINES.clean : Story.LINES.pass, i + (s.tries || 0)));
     if (promoted) h += '<div class="promo" style="--zc:' + z.color + '"><span>Promotion</span><strong>' + esc(RANKS[after]) + '</strong>' + (ZONES[after] && zoneLevels(ZONES[after].n).length ? '<em>Floor ' + ZONES[after].n + ', ' + esc(ZONES[after].name) + ', is now open.</em>' : '<em>The whole Pylon is online. There is nothing left to fix here.</em>') + '</div>';
-    const nx = nextOf(lv), briefFirst = !!nx && nx.kind === 'code' && !s.brief;
+    const briefFirst = false;                      // the next mission opens on its own briefing
     h += '<div class="done-actions">' + (summit ? '<button type="button" class="btn primary" data-focus id="done-ending">Light the beacon</button>' : briefFirst ? '<button type="button" class="btn primary" data-focus id="done-brief">Briefing for the next level</button>' : '') +
       (last ? '' : '<button type="button" class="btn' + (briefFirst ? '"' : ' primary" data-focus') + ' id="done-next">Next level</button>') +
       '<button type="button" class="btn" id="done-solution">Read the model solution</button>' + (best < 3 ? '<button type="button" class="btn" id="done-retry">Clean attempt for 3 stars</button>' : '') +
       '<button type="button" class="btn ghost" id="done-tower">Back to the tower</button></div></div>';
-    modal(h);
+    const show = () => modal(h);
+    if (justLit && !Scene.seen('f' + z.n + 'e')) Scene.play('f' + z.n + 'e', show); else show();          // a floor back online: its scene first
   }, 700);
 }
 
@@ -1886,9 +1937,10 @@ function showEnding() {
   Music.cue('ending');
   setTimeout(() => {
     Sfx.play('rank');
-    modal('<div class="ending"><div class="eyebrow">The Pylon is online</div><h2>Signal restored</h2>' + Story.EPILOGUE.map((p, k) => '<p' + (k === 2 ? ' class="radio"' : '') + '>' + esc(p) + '</p>').join('') +
+    const reply = () => modal('<div class="ending"><div class="eyebrow">The Pylon is online</div><h2>Signal restored</h2>' + (Saga ? Saga.REPLY[(S.saga && S.saga.end) === 'send' ? 'send' : 'verify'] : Story.EPILOGUE).map(p => '<p' + (p[0] === '"' ? ' class="radio"' : '') + '>' + esc(p) + '</p>').join('') +
       '<p class="mute">' + LEVELS.length + ' levels, ' + ZONES.length + ' floors, one drone. Thank you for playing. The daily reviews, the interviews and the craft marks are still here, and so is every level you might want to write better.</p>' +
       '<div class="done-actions"><button type="button" class="btn primary" data-focus id="ending-close">Back to the tower</button><button type="button" class="btn" id="ending-log">Read the tower log</button></div></div>', { wide: true });
+    if (Saga) Scene.play('summit', reply, 'The summit'); else reply();          // the last choice, then what comes back
   }, 1500);
 }
 // PIP's paint. Every rank unlocks one more.
@@ -1982,6 +2034,11 @@ function cleanSave(d) {
     if (r.rv && typeof r.rv === 'object' && day(r.rv.due)) s.rv = { box: int(r.rv.box, RV_GAPS.length - 1), due: r.rv.due };
   }
   for (const k of ['sound', 'music', 'unlockAll', 'ac', 'replay', 'pipTalk', 'ended', 'tipTrace', 'hc', 'calm']) if (typeof d[k] === 'boolean') out[k] = d[k];
+  if (d.saga && typeof d.saga === 'object') {          // which scenes were seen, and the choices made in them
+    out.saga = { seen: {} };
+    for (const id of Object.keys(Saga ? Saga.SCENES : {})) if (d.saga.seen && d.saga.seen[id]) out.saga.seen[id] = true;
+    for (const k of ['mem', 'talk', 'end']) if (typeof d.saga[k] === 'string' && /^[a-z]{1,10}$/.test(d.saga[k])) out.saga[k] = d.saga[k];
+  }
   for (const k of ['musicVol', 'sfxVol']) if (typeof d[k] === 'number' && d[k] >= 0 && d[k] <= 1) out[k] = d[k];
   if (typeof d.last === 'string' && INDEX[d.last] !== undefined) out.last = d.last;
   if ([1, 2, 4].indexOf(d.speed) >= 0) out.speed = d.speed;
@@ -2081,7 +2138,7 @@ const TOURS = {
   ],
   2: [
     { at: 'stage', text: 'From here on every level has a scene of its own, built from one of its tests. When you run your code, PIP acts out what it returned: a right answer opens the gate or holds the bridge, a wrong one goes visibly wrong.' },
-    { at: 'tab-btn-lesson', text: 'You now write real Python, and the lesson comes one level early: this tab holds the briefing for the next level.' },
+    { at: 'tab-btn-lesson', text: 'You now write real Python. Every mission opens on its briefing: the tools it may call for, each shown at work on other data. It never says which ones the task needs.' },
     { at: 'tab-btn-tools', text: 'Tools holds every function and method you have been shown so far, as cards you can search. A level never says which ones it needs.' },
     { at: 'editor', tab: 'code', text: 'Write your answer here. Suggestions appear as you type, each with a reminder of what it does.' },
     { at: 'btn-trace', tab: 'code', text: 'Step through runs your code one line at a time and draws your lists and dictionaries in the arena. It is the fastest way to find a bug.' },
@@ -2270,6 +2327,9 @@ function bind() {
     const id = t.id;
     if (t.dataset.zone) { const ls = zoneLevels(+t.dataset.zone); const firstOpen = ls.find(l => !isSolved(INDEX[l.id])) || ls[0]; Sfx.play('select'); selectLevel(INDEX[firstOpen.id]); return; }
     if (t.dataset.tab) { Sfx.play('click'); showTab(t.dataset.tab); return; }
+    if (t.dataset.sc) { Scene.pick(t.dataset.sc); return; }
+    if (t.id === 'sc-next') { Scene.next(); return; }
+    if (t.id === 'sc-skip') { Scene.skip(); return; }
     if (t.dataset.cmd) { insertLine(CMD_TEXT[t.dataset.cmd] || t.dataset.cmd); return; }
     if (t.dataset.ins !== undefined) { editor.insert(t.dataset.ins); return; }
     if (t.dataset.move) { editor.move(+t.dataset.move); return; }

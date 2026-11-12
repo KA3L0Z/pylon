@@ -37,6 +37,8 @@ jobs:
         run: node tools/check_scenes.js
       - name: The terminal
         run: node tools/check_terminal.js
+      - name: The story
+        run: node tools/check_story.js
       - name: A real browser plays the game
         run: |
           npm install --no-save --no-package-lock --no-audit --no-fund --prefix "$PWD/.ci" puppeteer-core@24
