@@ -1,5 +1,6 @@
 /* Pylon game logic: progress, the tower hub, the level panel, running code, the step-by-step tracer and its picture of
-   the data, live error checks, the scratchpad, daily reviews, mock interviews, the AI mentor, sound, badges, saving. */
+   the data, live error checks, the scratchpad, daily reviews, the bug hunt, mock interviews, the AI mentor, the tour,
+   comfort settings, the save code, sound, badges, saving. */
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
@@ -385,6 +386,7 @@ const BADGES = [
   { id: 'briefs', name: 'Well Briefed', desc: 'Read 20 briefings for the level ahead.', test: c => c.n('briefs') >= 20 },
   { id: 'craft1', name: 'Clean Code', desc: 'Earn all four craft marks on one level.', test: c => c.craft4 >= 1 },
   { id: 'craft10', name: 'Craftsman', desc: 'Earn all four craft marks on 10 levels.', test: c => c.craft4 >= 10 },
+  { id: 'bugs', name: 'Exterminator', desc: 'Repair 10 planted bugs in the bug hunt.', test: c => c.n('bugs') >= 10 },
   { id: 'senior', name: 'Senior Engineer', desc: 'Bring Floor 7 back online.', test: c => c.rank >= 7 },
   { id: 'summit', name: 'Top of the Pylon', desc: 'Solve every level in the tower.', test: c => c.solved >= LEVELS.length },
 ];
@@ -470,9 +472,12 @@ function ivNeeds(set) {                           // null when the set can start
 }
 function showInterviews() {
   Sfx.play('modal');
-  const last = S.ivLog.slice(-3).reverse();
-  modal('<div class="eyebrow">Mock interview</div><h2>Solve it like it counts</h2>' +
-    '<p>A timed set of classic problems from the floors you have reached. There is no lesson, no hint and no solution: only the task, the editor, and Step through. The clock does not stop.</p>' +
+  const last = S.ivLog.slice(-3).reverse(), pool = bugPool().length, paid = bugPaid(), fixed = !paid && S.bug.ok;
+  modal('<div class="eyebrow">Challenges</div><h2>Prove it</h2>' +
+    '<h3>Daily bug hunt</h3><button type="button" class="ivset" id="bug-start"' + (pool ? '' : ' disabled') + '><strong>Find the bug</strong><em>' + (paid ? '+' + BUG_XP + ' XP' : 'Practice') + '</em><span>' +
+    (!pool ? 'Opens when you have solved your first code level.' : paid ? 'One small thing has been changed in the answer to a level you have solved: your own answer where it still passes. Read it, find the line and repair it.'
+      : (fixed ? 'Repaired today. ' : 'Today’s hunt is over. ') + 'A new bug arrives tomorrow. Until then, more of them for practice.') + '</span></button>' +
+    '<h3>Mock interview</h3><p>A timed set of classic problems from the floors you have reached. There is no lesson, no hint and no solution: only the task, the editor, and Step through. The clock does not stop.</p>' +
     '<div class="rows" style="gap:6px">' + IV_SETS.map(s => { const miss = ivNeeds(s); return '<button type="button" class="ivset" data-iv="' + s.id + '"' + (miss ? ' disabled' : '') + '><strong>' + esc(s.name) + '</strong><em>' + s.mins + ' min · ' + s.pick.length + ' problems</em><span>' + esc(miss || s.blurb) + '</span></button>'; }).join('') + '</div>' +
     (last.length ? '<h3>Your last rounds</h3><ul class="ivlist">' + last.map(r => { const set = IV_SETS.find(s => s.id === r.set) || IV_SETS[0]; return '<li class="' + (r.solved === r.n ? 'ok' : 'bad') + '"><span class="t-mark">' + (r.solved === r.n ? '✓' : '·') + '</span><span>' + esc(set.name) + ' <small>' + r.solved + ' of ' + r.n + ' solved</small></span><small>' + esc(r.v) + '</small></li>'; }).join('') + '</ul>' : '') +
     '<div class="done-actions"><button type="button" class="btn ghost" data-focus id="menu-close">Not now</button></div>', { wide: true });
@@ -551,6 +556,82 @@ function finishInterview(timeUp) {
     (miss ? '<p class="mute">The lessons for the problems you missed are in the tower. Study one, then try another round.</p>' : '<p class="mute">Every problem solved under the clock, with no help. That is the real skill.</p>') +
     '<div class="done-actions"><button type="button" class="btn primary" data-focus id="iv-close">Back to the tower</button>' + (miss ? '<button type="button" class="btn" data-go="' + INDEX[miss.lv.id] + '">Study “' + esc(miss.lv.title) + '”</button>' : '') + '</div>',
   { wide: true, onClose: () => { if (mode === 'level' && play.mode === 'interview') closeLevel(); checkBadges(); } });
+}
+
+// ---------------------------------------------------------------- daily bug hunt
+// One small thing is changed in the model solution of a level the player has already solved (js/bughunt.js finds the
+// places). The player reads the code, finds the line and repairs it. The first hunt of a day pays XP; after that it is practice.
+const Bugs = window.PylonBugs || null;
+const BUG_XP = 25, BUG_XP_CLEAN = 10;
+let bugRound = 0;
+const bugPool = () => (Bugs ? LEVELS.filter((l, i) => l.kind === 'code' && isSolved(i) && l.solution) : []);
+const bugPaid = () => !(S.bug && S.bug.d === today());
+// Try changes until one breaks a test. The best bug still passes some tests and hangs none of them.
+async function plantBug(pool, seedText) {
+  const rnd = Bugs.seeded(seedText), t0 = Date.now();
+  let spare = null;
+  for (const lv of Bugs.shuffled(pool, rnd).slice(0, 6)) {
+    // The player's own answer is the better place for a bug, when it is still there and still passes.
+    const own = S.levels[lv.id] && typeof S.levels[lv.id].code === 'string' ? S.levels[lv.id].code : '';
+    let mine = false;
+    if (own.trim() && !sameCode(own, lv.solution)) { try { mine = Runner.run(lv, own, { quick: true }).ok; } catch (e) { mine = false; } }
+    const code = (mine ? own : lv.solution).replace(/\s+$/, '') + '\n';
+    for (const spot of Bugs.shuffled(Bugs.spots(code), rnd).slice(0, 8)) {
+      const made = Bugs.apply(code, spot);
+      let res = null;
+      try { res = Runner.run(lv, made.code, { quick: true }); } catch (e) { res = null; }
+      const verdict = Bugs.judge(res);
+      made.lv = lv; made.mine = mine;
+      if (verdict === 'good') return made;
+      if (verdict === 'weak' && !spare) spare = made;
+      if (Date.now() - t0 > 2500) return spare;
+      await nextPaint();
+    }
+  }
+  return spare;
+}
+async function startBug() {
+  const pool = bugPool();
+  if (!pool.length || busy) return;
+  const paid = bugPaid();
+  if (!paid) bugRound++;
+  modal('<div class="eyebrow">Bug hunt</div><h2>Planting a bug…</h2><p class="mute">Taking the answer to a level you have solved and changing one small thing in it.</p>');
+  await nextPaint();
+  const made = await plantBug(pool, today() + ':' + (paid ? 0 : bugRound));
+  if ($('modal').hidden) return;                   // closed while the bug was being made
+  if (!made) {
+    modal('<div class="eyebrow">Bug hunt</div><h2>No bug this time</h2><p>None of the changes tried on your solved levels broke a test. Solve another level and try again.</p>' +
+      '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>');
+    return;
+  }
+  enter(made.lv, { mode: 'bug', bug: Object.assign(made, { paid, runs: 0, closed: false }) });
+}
+function bugAfterRun(lv, res) {
+  const b = play.bug;
+  if (!b) return;
+  b.runs++;
+  if (res.ok) bugDone(lv, true);
+  else { haptic(60); say(pickLine(Story.LINES.bug, b.runs)); }
+}
+function bugDone(lv, ok) {
+  const b = play.bug;
+  if (!b) return;
+  const z = zoneOf(lv), first = !b.closed, clean = ok && b.runs === 1;
+  let xp = 0;
+  if (first) {
+    b.closed = true;
+    if (ok) { bump('bugs'); if (b.paid) { xp = BUG_XP + (clean ? BUG_XP_CLEAN : 0); S.bonus += xp; markDay(); } }
+    if (b.paid) S.bug = { d: today(), ok: !!ok };
+    save();
+    checkBadges();
+  }
+  if (ok) { Sfx.play('star'); haptic([20, 40, 20]); } else Sfx.play('modal');
+  const why = ok ? 'Every test passes again.' + (xp ? ' <b>+' + BUG_XP + ' XP</b>' + (clean ? ' and <b>+' + BUG_XP_CLEAN + '</b> for repairing it on the first run.' : '') : first && !b.paid ? ' A practice round: the XP goes to the first hunt of the day.' : '')
+    : 'One small change was enough to break it. A new bug arrives tomorrow.';
+  modal('<div class="done"><div class="eyebrow">Bug hunt · Floor ' + z.n + ' · ' + esc(lv.title) + '</div><h2>' + (ok ? 'Bug fixed' : 'Here is the bug') + '</h2><p class="done-why">' + why + '</p>' +
+    '<div class="bugdiff"><span>Line ' + b.line + ', with the bug</span><pre class="code">' + window.PylonHighlight(Bugs.bare(b.bad)) + '</pre><span>As it was written</span><pre class="code">' + window.PylonHighlight(Bugs.bare(b.good)) + '</pre></div>' +
+    (ok ? pipLine(pickLine(Story.LINES.bugok, b.line + b.runs)) : '') +
+    '<div class="done-actions"><button type="button" class="btn primary" data-focus id="bug-again">Another bug (practice)</button><button type="button" class="btn ghost" id="done-tower">Back to the tower</button></div></div>');
 }
 
 // ---------------------------------------------------------------- hub
@@ -676,16 +757,16 @@ function keepCode() {                             // put what is in the editor w
 }
 function enter(lv, opts) {
   opts = opts || {};
-  closeModal(); closeTrace(); Mentor.stop(); clearNote();
+  closeModal(); closeTrace(); Mentor.stop(); clearNote(); Tour.end();
   cur = lv;
   lastRes = null;
-  play = { mode: opts.mode || 'normal' };
-  const s = st(cur.id), z = zoneOf(cur), lab = cur.kind === 'sandbox', normal = play.mode === 'normal', iv = play.mode === 'interview' ? S.iv : null;
+  play = { mode: opts.mode || 'normal', bug: opts.bug || null };
+  const s = st(cur.id), z = zoneOf(cur), lab = cur.kind === 'sandbox', normal = play.mode === 'normal', iv = play.mode === 'interview' ? S.iv : null, hunt = play.mode === 'bug' ? play.bug : null;
   if (normal) { S.open = cur.id; if (!lab) S.last = cur.id; } else S.open = null;
   Sfx.play('open');
   setAccent(z.color);
   setMode('level');
-  $('p-eyebrow').textContent = lab ? 'Scratchpad · ' + cur.concept : play.mode === 'review' ? 'Review · Floor ' + z.n + ' · ' + cur.concept
+  $('p-eyebrow').textContent = lab ? 'Scratchpad · ' + cur.concept : hunt ? 'Bug hunt · Floor ' + z.n + ' · ' + cur.concept : play.mode === 'review' ? 'Review · Floor ' + z.n + ' · ' + cur.concept
     : iv ? 'Interview · problem ' + (iv.at + 1) + ' of ' + iv.ids.length + ' · ' + cur.difficulty : 'Floor ' + z.n + ' · Level ' + cur.order + ' · ' + cur.concept;
   $('p-name').textContent = cur.title;
   $('btn-back').textContent = iv ? 'End' : '‹ Tower';
@@ -696,7 +777,8 @@ function enter(lv, opts) {
   $('tab-tools').innerHTML = '';
   if (normal) renderLesson(); else $('tab-lesson').innerHTML = '';
   { const nx = lab ? null : nextOf(cur); $('tab-btn-lesson').classList.toggle('dot', normal && !!nx && nx.kind === 'code' && s.solved && !s.brief); }
-  $('task-body').innerHTML = cur.task + (iv && cur.classic ? '<p class="mute">Known as: ' + esc(cur.classic) + '</p>' : '');
+  $('task-body').innerHTML = (hunt ? '<p class="bugnote"><b>Bug hunt.</b> This is ' + (hunt.mine ? 'your own answer' : 'the model solution') + ' with one small thing changed. Find the line and repair it. <b>Run</b> shows which tests fail now. <b>Step through</b> shows where a value goes wrong.</p>' : '') +
+    cur.task + (iv && cur.classic ? '<p class="mute">Known as: ' + esc(cur.classic) + '</p>' : '');
   hl($('task-body'));
   $('taskbox').open = true;
   $('taskbox').hidden = lab;
@@ -709,8 +791,9 @@ function enter(lv, opts) {
   $('btn-trace').hidden = cur.kind === 'robot';
   $('btn-hint').hidden = lab || !normal;
   $('btn-mentor').hidden = !Mentor.ready || !normal;
-  $('btn-forgot').hidden = play.mode !== 'review';
-  editor.set(normal ? (s.code != null ? s.code : cur.starter) : iv && iv.codes[cur.id] != null ? iv.codes[cur.id] : cur.starter);
+  $('btn-forgot').hidden = play.mode !== 'review' && !hunt;
+  $('btn-forgot').textContent = hunt ? 'Show the bug' : 'I forgot';
+  editor.set(normal ? (s.code != null ? s.code : cur.starter) : hunt ? hunt.code : iv && iv.codes[cur.id] != null ? iv.codes[cur.id] : cur.starter);
   editor.setWords(cur.kind === 'robot' ? window.PylonComplete.robotWords(cur.commands) : lab ? LAB_WORDS : cur.zone >= 7 ? NODE_WORDS : []);
   $('results').innerHTML = '';
   $('mentor').hidden = true;
@@ -722,6 +805,7 @@ function enter(lv, opts) {
   buildArena();
   hush();
   greet(cur);
+  Tour.maybe(cur);
   save();
 }
 function closeLevel(celebrate) {
@@ -730,6 +814,7 @@ function closeLevel(celebrate) {
   closeTrace();
   clearNote();
   hush();
+  Tour.end();
   clearInterval(ivTimer);
   keepCode();
   busy = animating = false;
@@ -919,7 +1004,7 @@ function filterTools(query) {
 }
 // Craft marks: a passing answer is also read for how it is written. Each mark is worth XP the first time a level earns it.
 function reviewCraft(lv, code, res, how) {
-  if (!Craft || lv.kind !== 'code' || !res.ok || res.error || how === 'interview') return;
+  if (!Craft || lv.kind !== 'code' || !res.ok || res.error || how === 'interview' || how === 'bug') return;
   const r = Craft.review(code, lv);
   if (!r.ok) return;
   res.craft = r;
@@ -1139,8 +1224,10 @@ async function run() {
   } else {
     const states = res.error ? [] : res.tests.map(t => t.ok ? 'pass' : t.slow ? 'slow' : 'fail');
     if (states.length) await replayRun(lv, code);
-    if (states.length && cur === lv) await World.playTests(states, { instant: skipShow });
-    else { World.resetTests(); World.mood('sad'); Sfx.play('fail'); }
+    if (states.length && cur === lv) {
+      const shown = await World.playTests(states, { instant: skipShow });
+      if (!shown && cur === lv) World.playTests(states, { instant: true });      // skipped in the middle of the show: the crystals still give the verdict
+    } else { World.resetTests(); World.mood('sad'); Sfx.play('fail'); }
   }
   animating = false;
   $('btn-run').firstChild.textContent = 'Run ';
@@ -1155,6 +1242,7 @@ async function run() {
   if (lv.kind === 'sandbox') { setStatus(res.ok ? 'Done' : 'Error', res.ok ? 'ok' : 'bad'); save(); checkBadges(); return; }
   setStatus(res.ok ? 'Solved' : 'Not yet', res.ok ? 'ok' : 'bad');
   if (how === 'interview') { ivAfterRun(lv, res); return; }
+  if (how === 'bug') { bugAfterRun(lv, res); return; }
   if (how === 'review') { if (res.ok) reviewDone(lv, true, res); else haptic(60); return; }
   if (!res.ok) {
     s.fails = (s.fails || 0) + 1;
@@ -1609,6 +1697,248 @@ function applyPaint() { const k = Math.max(0, PAINTS.findIndex(p => p.id === S.p
 const paintHex = c => '#' + ('000000' + c.toString(16)).slice(-6);
 const paintsHtml = () => PAINTS.map((p, k) => '<button type="button" class="swatch' + ((S.paint || 'white') === p.id ? ' on' : '') + '" data-paint="' + p.id + '"' + (paintOpen(k) ? '' : ' disabled') + ' style="--sw:' + paintHex(p.color) + '" title="' + esc(p.name) + (paintOpen(k) ? '' : ': reach the rank of ' + esc(RANKS[k])) + '" aria-label="' + esc(p.name) + (paintOpen(k) ? '' : ', locked') + '"></button>').join('');
 
+// ---------------------------------------------------------------- comfort, the save code, installing
+// Text size, motion and contrast are classes on the page's root element, so the stylesheet does the work.
+const sysCalm = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+const isCalm = () => (typeof S.calm === 'boolean' ? S.calm : sysCalm);
+function applyComfort() {
+  const r = document.documentElement.classList, ts = S.ts === 1 || S.ts === 2 ? S.ts : 0, quiet = isCalm();
+  r.toggle('ts-1', ts === 1); r.toggle('ts-2', ts === 2);
+  r.toggle('hc', !!S.hc);
+  r.toggle('calm', quiet); r.toggle('motion', !quiet);
+  World.setCalm(quiet);
+  try { window.dispatchEvent(new Event('resize')); } catch (e) { /* a resize makes the editor measure its letters again */ }
+}
+function toggleFull() {
+  const d = document, no = () => toast('Full screen is not available here.');
+  try {
+    const p = d.fullscreenElement ? d.exitFullscreen() : d.documentElement.requestFullscreen();
+    if (p && p.catch) p.catch(no);
+  } catch (e) { no(); }
+}
+
+// The save code: the whole save as text, to keep as a backup or to carry to another browser.
+const B64 = {
+  enc(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); },
+  dec(text) { const s = atob(text), out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; },
+};
+// Push bytes through a compression stream and collect what comes out, giving up past a size limit.
+async function pump(bytes, stream, cap) {
+  const w = stream.writable.getWriter();
+  w.write(bytes).catch(() => {});
+  w.close().catch(() => {});
+  const r = stream.readable.getReader(), parts = [];
+  let n = 0;
+  for (;;) {
+    const got = await r.read();
+    if (got.done) break;
+    n += got.value.length;
+    if (n > cap) { r.cancel().catch(() => {}); throw new Error('too large'); }
+    parts.push(got.value);
+  }
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+async function saveCode() {
+  const raw = new TextEncoder().encode(JSON.stringify(S));
+  if (window.CompressionStream) { try { return 'PYLON2.' + B64.enc(await pump(raw, new CompressionStream('gzip'), 4e6)); } catch (e) { /* the plain form below */ } }
+  return 'PYLON1.' + B64.enc(raw);
+}
+async function readSaveCode(text) {
+  const m = /^\s*PYLON([12])\.([A-Za-z0-9+/=\s]+)$/.exec(String(text || '').slice(0, 600000));
+  if (!m) return null;
+  try {
+    let bytes = B64.dec(m[2].replace(/\s+/g, ''));
+    if (m[1] === '2') { if (!window.DecompressionStream) return null; bytes = await pump(bytes, new DecompressionStream('gzip'), 4e6); }
+    return cleanSave(JSON.parse(new TextDecoder().decode(bytes)));
+  } catch (e) { return null; }
+}
+// A save code can come from anywhere, so nothing in it is trusted: every field is read as the type it should have,
+// numbers are kept inside their range, and anything unknown is dropped.
+const IV_VERDICTS = ['Strong hire', 'Hire', 'Leaning hire', 'No hire yet'];
+function cleanSave(d) {
+  if (!d || typeof d !== 'object' || d.v !== 1 || !d.levels || typeof d.levels !== 'object') return null;
+  const int = (x, max) => (typeof x === 'number' && isFinite(x) ? Math.max(0, Math.min(max, Math.round(x))) : 0);
+  const day = x => (typeof x === 'string' && /^\d{4}-\d\d-\d\d$/.test(x) ? x : null);
+  const out = { v: 1, levels: {} }, mark = Craft ? Craft.XP_PER_MARK : 10;
+  for (const l of LEVELS) {
+    const r = d.levels[l.id];
+    if (!r || typeof r !== 'object') continue;
+    const s = out.levels[l.id] = { solved: !!r.solved, stars: int(r.stars, 3), xp: Math.min(int(r.xp, 9999), xpFor(l, 3)), code: typeof r.code === 'string' ? r.code.slice(0, 20000) : null,
+      hints: int(r.hints, 9), saw: !!r.saw, tries: int(r.tries, 99999), read: !!r.read, t: int(r.t, 1e14) };
+    if (!s.solved) { s.stars = 0; s.xp = 0; }
+    for (const k of ['mentor', 'lean', 'brief', 'hello']) if (r[k]) s[k] = true;
+    if (r.pred) s.pred = int(r.pred, 0x7fffffff);
+    if (r.craft) { s.craft = int(r.craft, 15); s.cx = Math.min(int(r.cx, 999), bitCount(s.craft) * mark); }
+    if (r.fails) s.fails = int(r.fails, 99999);
+    if (r.rv && typeof r.rv === 'object' && day(r.rv.due)) s.rv = { box: int(r.rv.box, RV_GAPS.length - 1), due: r.rv.due };
+  }
+  for (const k of ['sound', 'music', 'unlockAll', 'ac', 'replay', 'pipTalk', 'ended', 'tipTrace', 'hc', 'calm']) if (typeof d[k] === 'boolean') out[k] = d[k];
+  for (const k of ['musicVol', 'sfxVol']) if (typeof d[k] === 'number' && d[k] >= 0 && d[k] <= 1) out[k] = d[k];
+  if (typeof d.last === 'string' && INDEX[d.last] !== undefined) out.last = d.last;
+  if ([1, 2, 4].indexOf(d.speed) >= 0) out.speed = d.speed;
+  if (['auto', 'high', 'medium', 'low'].indexOf(d.gfx) >= 0) out.gfx = d.gfx;
+  if (d.ts === 1 || d.ts === 2) out.ts = d.ts;
+  if (PAINTS.some(p => p.id === d.paint)) out.paint = d.paint;
+  out.days = Array.isArray(d.days) ? Array.from(new Set(d.days.filter(day))).sort().slice(-400) : [];
+  out.badges = {};
+  for (const b of BADGES) if (d.badges && typeof d.badges === 'object' && d.badges[b.id]) out.badges[b.id] = int(d.badges[b.id], 1e14) || 1;
+  out.counters = {};
+  if (d.counters && typeof d.counters === 'object') for (const k of Object.keys(d.counters)) if (/^[A-Za-z][A-Za-z0-9]{0,23}$/.test(k)) out.counters[k] = int(d.counters[k], 1e9);
+  out.bonus = int(d.bonus, 1e7);
+  if (d.rvDay && typeof d.rvDay === 'object' && day(d.rvDay.d)) out.rvDay = { d: d.rvDay.d, n: int(d.rvDay.n, 99) };
+  out.ivLog = Array.isArray(d.ivLog) ? d.ivLog.filter(r => r && typeof r === 'object' && IV_SETS.some(s => s.id === r.set)).slice(-12)
+    .map(r => ({ set: r.set, solved: int(r.solved, 9), n: int(r.n, 9), v: IV_VERDICTS.indexOf(r.v) >= 0 ? r.v : 'No hire yet', t: int(r.t, 1e14) })) : [];
+  if (d.cv === 2 || d.cv === 3) out.cv = d.cv;
+  out.rank0 = int(d.rank0, RANKS.length - 1);
+  if (typeof d.labIn === 'string') out.labIn = d.labIn.slice(0, 4000);
+  if (d.bug && typeof d.bug === 'object' && day(d.bug.d)) out.bug = { d: d.bug.d, ok: !!d.bug.ok };
+  out.tour = int(d.tour, 3);
+  out.t = int(d.t, 1e14);
+  return out;
+}
+// Replace the progress in this browser with a save that has been read and cleaned.
+function adoptSave(d) {
+  clearInterval(ivTimer);
+  if (mode === 'level') closeLevel();
+  // What belongs to this device and this person stays, unless the save says otherwise: sound, graphics, comfort.
+  const here = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc }, board = S.board;
+  S = Object.assign({ v: 1, levels: {}, unlockAll: false, last: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, ivLog: [], t: 0 }, here, d, { board, intro: true, open: null, iv: null });
+  tidy(); migrate(); seedReviews();
+  save();
+  checkBadges(true);
+  editor.setComplete(S.ac);
+  World.setQuality(S.gfx);
+  applyComfort(); applyPaint(); Music.apply();
+  closeModal();
+  selectLevel(S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex()), true);
+  refreshProgress();
+  toast('Save loaded: ' + totals().solved + ' of ' + LEVELS.length + ' levels solved.');
+}
+async function showSaveBox() {
+  if (mode === 'level') keepCode();
+  modal('<div class="eyebrow">Your progress</div><h2>Save code</h2>' +
+    '<p>This code is your whole save as text: solved levels, stars, badges, review dates and the code you wrote. Keep it somewhere as a backup, or paste it into Pylon in another browser to carry on there.</p>' +
+    '<h3>Your save code</h3><textarea class="savebox" id="save-out" readonly rows="4" spellcheck="false" aria-label="Your save code">Preparing…</textarea>' +
+    '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn primary" id="save-copy" disabled>Copy the code</button></div>' +
+    '<h3>Load a save code</h3><textarea class="savebox" id="save-in" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste a save code here" aria-label="A save code to load"></textarea>' +
+    '<p class="mute" id="save-msg" aria-live="polite"></p>' +
+    '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn" id="save-load">Load this save</button><button type="button" class="btn ghost" data-focus id="menu-close">Close</button></div>', { wide: true });
+  const code = await saveCode(), out = $('save-out');
+  if (!out) return;
+  out.value = code;
+  $('save-copy').disabled = false;
+}
+function copySaveCode() {
+  const out = $('save-out');
+  if (!out) return;
+  const done = () => toast('Save code copied.'), pick = () => { out.focus(); out.select(); toast('The code is selected. Copy it from here.'); };
+  try { navigator.clipboard.writeText(out.value).then(done, pick); } catch (e) { pick(); }
+}
+async function loadSaveCode() {
+  const field = $('save-in');
+  if (!field) return;
+  const d = await readSaveCode(field.value), msg = $('save-msg');
+  if (!msg) return;
+  if (!d) { msg.className = 'bad'; msg.textContent = field.value.trim() ? 'That is not a Pylon save code. Copy the whole code, from PYLON to its last character.' : 'Paste a save code into the box first.'; return; }
+  const theirs = LEVELS.filter(l => d.levels[l.id] && d.levels[l.id].solved).length, mine = totals().solved;
+  confirmBox('Load this save?', 'The save has ' + theirs + (theirs === 1 ? ' solved level' : ' solved levels') + '. This browser has ' + mine + '. Loading it replaces the progress in this browser' +
+    (Cloud.ready ? ', and the progress in your Claude account is then merged into it.' : '.'), 'Load the save', () => adoptSave(d));
+}
+
+// Installing: the standalone site can be added to a phone or a desktop like an app, and then starts without a connection.
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
+window.addEventListener('appinstalled', () => { installEvt = null; });
+const isInstalled = () => !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone);
+const worksOffline = () => { try { return !!(navigator.serviceWorker && navigator.serviceWorker.controller); } catch (e) { return false; } };
+function installRow() {
+  if (!document.querySelector('link[rel="manifest"]') || isInstalled()) return '';
+  if (installEvt) return '<div class="row"><span>Install Pylon<small>Adds it to this device like an app. It then starts without a connection.</small></span><button type="button" class="btn" id="opt-install">Install</button></div>';
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) return '<div class="row"><span>Install Pylon<small>In Safari, press Share and then “Add to Home Screen”. It then starts without a connection.</small></span></div>';
+  return '';
+}
+
+// ---------------------------------------------------------------- the first-time tour
+// A few notes that point at parts of the screen, once on the first drone level and once on the first code level.
+const TOURS = {
+  1: [
+    { at: 'stage', text: 'This is PIP, the maintenance drone, on a deck of the tower. PIP does exactly what your Python says, no more and no less.' },
+    { at: 'editor', tab: 'code', text: 'You write your program here. The task is in the box just above it.' },
+    { at: 'cmds', tab: 'code', text: 'These are the commands PIP understands on this deck. Press one to drop it into your code.' },
+    { at: 'btn-run', tab: 'code', text: 'Run plays your program on the deck. If PIP ends up in the wrong place, change the code and run again. Nothing here can break.' },
+    { at: 'btn-hint', tab: 'code', text: 'Stuck? Hints go from a nudge to nearly the answer. Using them costs a star, never the level.' },
+    { at: 'tab-btn-lesson', tab: 'lesson', text: 'Start here. Every level opens with a short lesson on the one new idea it needs. Read it, then open Code.' },
+  ],
+  2: [
+    { at: 'tab-btn-lesson', text: 'From here on you write real Python, and the lesson comes one level early: this tab holds the briefing for the next level.' },
+    { at: 'tab-btn-tools', text: 'Tools holds every function and method you have been shown so far, as cards you can search. A level never says which ones it needs.' },
+    { at: 'editor', tab: 'code', text: 'Write your answer here. Suggestions appear as you type, each with a reminder of what it does.' },
+    { at: 'btn-trace', tab: 'code', text: 'Step through runs your code one line at a time and draws your lists and dictionaries in the arena. It is the fastest way to find a bug.' },
+    { at: 'btn-run', tab: 'code', text: 'Run checks your code against the tests. A passing answer can also earn four craft marks for being short, clear and tidy.' },
+  ],
+};
+let tourForce = false;
+const Tour = (() => {
+  let steps = null, k = 0, lv = null, timer = 0;
+  function place() {
+    if (!steps) return;
+    const el = $(steps[k].at), box = $('coach'), ring = $('coach-ring'), r0 = el && !el.hidden ? el.getBoundingClientRect() : null;
+    if (!r0 || r0.width < 2 || r0.height < 2) { next(); return; }                  // nothing to point at here: move on
+    const vw = window.innerWidth, vh = window.innerHeight, pad = 8;
+    const r = { left: Math.max(pad, r0.left - 4), top: Math.max(pad, r0.top - 4), right: Math.min(vw - pad, r0.right + 4), bottom: Math.min(vh - pad, r0.bottom + 4) };
+    ring.hidden = false;
+    ring.style.left = r.left + 'px'; ring.style.top = r.top + 'px'; ring.style.width = (r.right - r.left) + 'px'; ring.style.height = (r.bottom - r.top) + 'px';
+    box.hidden = false;
+    const bw = box.offsetWidth, bh = box.offsetHeight, x = Math.min(vw - bw - pad, Math.max(pad, (r.left + r.right) / 2 - bw / 2));
+    let y;
+    if (r.bottom - r.top > vh * 0.45) y = r.bottom - bh - 76;                       // a large target: sit inside it, clear of the controls along its lower edge
+    else if (r.bottom + 10 + bh <= vh - pad) y = r.bottom + 10;
+    else y = r.top - 10 - bh;
+    box.style.left = x + 'px';
+    box.style.top = Math.min(vh - bh - pad, Math.max(pad, y)) + 'px';
+  }
+  function show() {
+    const s = steps[k];
+    if (s.tab && cur === lv) showTab(s.tab);
+    $('coach-text').textContent = s.text;
+    $('coach-n').textContent = (k + 1) + ' / ' + steps.length;
+    $('coach-next').textContent = k === steps.length - 1 ? 'Got it' : 'Next';
+    place();
+  }
+  function next() {
+    if (!steps) return;
+    if (++k >= steps.length) { end(); return; }
+    show();
+  }
+  function end() {
+    clearTimeout(timer);
+    if (!steps) return;
+    steps = null;
+    $('coach').hidden = true; $('coach-ring').hidden = true;
+  }
+  function start(n, level) {
+    end();
+    lv = level; k = 0; steps = TOURS[n];
+    S.tour = (S.tour || 0) | n;
+    save();
+    show();
+  }
+  // Only for someone who has not solved a level of this kind yet, and only once.
+  function maybe(level) {
+    if (level.kind === 'sandbox' || play.mode !== 'normal') return;
+    const n = level.kind === 'robot' ? 1 : 2, seen = (S.tour || 0) & n, old = LEVELS.some((l, i) => l.kind === level.kind && isSolved(i));
+    if (!tourForce && (seen || old)) return;
+    tourForce = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (cur === level && mode === 'level' && $('modal').hidden && !busy) start(n, level); }, 900);
+  }
+  window.addEventListener('resize', () => { if (steps) place(); });
+  return { start, next, end, maybe, get on() { return !!steps; } };
+})();
+
 function showIntro() {
   modal('<div class="intro"><div class="eyebrow">Signal tower · nine floors · one drone</div><h2>The Pylon has been dark for years.</h2>' +
     '<p>You are the new engineer. PIP, the maintenance drone, does exactly what your Python tells it to do, no more and no less.</p>' +
@@ -1619,10 +1949,10 @@ function showIntro() {
 }
 const seg = (attr, value, label, on) => '<button type="button" class="seg' + (on ? ' on' : '') + '" data-' + attr + '="' + value + '">' + label + '</button>';
 function showMenu() {
-  const q = World.getQuality() || { now: '' }, due = reviewsLeft();
+  const q = World.getQuality() || { now: '' }, due = reviewsLeft(), canFull = !!document.documentElement.requestFullscreen;
   Sfx.play('modal');
   modal('<h2>Menu</h2>' +
-    (mode === 'hub' ? '<div class="goto"><button type="button" class="btn" id="btn-review2">Review' + (due ? ' <b>' + due + '</b>' : '') + '</button><button type="button" class="btn" id="btn-interview2">Interview</button><button type="button" class="btn" id="btn-lab2">Scratchpad</button>' +
+    (mode === 'hub' ? '<div class="goto"><button type="button" class="btn" id="btn-review2">Review' + (due ? ' <b>' + due + '</b>' : '') + '</button><button type="button" class="btn" id="btn-interview2">Challenges</button><button type="button" class="btn" id="btn-lab2">Scratchpad</button>' +
       '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-log2">Tower log</button><button type="button" class="btn" id="btn-badges2">Badges</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
     '<h3>Sound</h3><div class="rows">' +
     '<div class="row"><label for="opt-music">Music</label><span class="vol"><input type="range" id="opt-music-vol" min="0" max="100" value="' + Math.round(S.musicVol * 100) + '" aria-label="Music volume"><input type="checkbox" id="opt-music"' + (S.music ? ' checked' : '') + '></span></div>' +
@@ -1635,10 +1965,19 @@ function showMenu() {
     '<label class="row" for="opt-unlock"><span>Unlock every level<small>For people who already know the basics and want to jump ahead.</small></span><input type="checkbox" id="opt-unlock"' + (S.unlockAll ? ' checked' : '') + '></label>' +
     '<label class="row" for="opt-pip"><span>PIP talks<small>A line from the drone when a level opens and when a run fails.</small></span><input type="checkbox" id="opt-pip"' + (S.pipTalk !== false ? ' checked' : '') + '></label>' +
     '<div class="row"><span>PIP\'s paint<small>Every rank unlocks one more.</small></span><span class="swatches" id="swatches">' + paintsHtml() + '</span></div>' +
+    '</div><h3>Comfort</h3><div class="rows">' +
+    '<div class="row"><span>Text size<small>Lessons, tasks, hints, results and the editor.</small></span><span class="segs">' + ['Normal', 'Large', 'Larger'].map((label, v) => seg('ts', v, label, (S.ts || 0) === v)).join('') + '</span></div>' +
+    '<label class="row" for="opt-calm"><span>Reduce motion<small>Stills the camera, the floating pieces and the animations on screen.</small></span><input type="checkbox" id="opt-calm"' + (isCalm() ? ' checked' : '') + '></label>' +
+    '<label class="row" for="opt-hc"><span>High contrast<small>Brighter small text and stronger outlines.</small></span><input type="checkbox" id="opt-hc"' + (S.hc ? ' checked' : '') + '></label>' +
+    (canFull ? '<div class="row"><span>Full screen</span><button type="button" class="btn" id="opt-full">' + (document.fullscreenElement ? 'Leave' : 'Enter') + ' full screen</button></div>' : '') +
+    installRow() +
+    '<div class="row"><span>The tour<small>The walk around the screen for new players.</small></span><button type="button" class="btn" id="btn-tour">Show it again</button></div>' +
     '</div><h3>Keys</h3><p class="mute"><kbd>Ctrl</kbd> <kbd>Enter</kbd> run · <kbd>Tab</kbd> take a suggestion, or indent · <kbd>Ctrl</kbd> <kbd>Space</kbd> ask for suggestions · <kbd>Ctrl</kbd> <kbd>/</kbd> comment · <kbd>Esc</kbd> leave the editor · arrow keys move along the tower, and step through a trace</p>' +
     '<h3>About the Python here</h3><p class="mute">Your code runs inside this page on a small Python interpreter written for Pylon. It covers the language and the standard modules these levels use (math, re, collections, heapq, itertools, functools, bisect and a few more). Files live in memory, and input() reads the lines a test or the Scratchpad\'s Input box gives it. Async code and third-party packages are not included.</p>' +
-    '<p class="mute">' + (Cloud.ready ? 'Your progress is saved to your Claude account and in this browser.' : 'Your progress is saved in this browser, on this device.') + ' Music: “Pythonic Ambiance”.</p>' +
-    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>', { wide: true });
+    '<p class="mute">Music: “Pythonic Ambiance”.' + (worksOffline() ? ' This copy of Pylon also starts without a connection.' : '') + '</p>' +
+    '<h3>Your progress</h3><p class="mute">' + (Cloud.ready ? 'Saved to your Claude account and in this browser.' : 'Saved in this browser, on this device.') + ' A save code holds all of it as text: keep one as a backup, or use it to carry your progress to another browser.</p>' +
+    '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn" id="btn-savebox">Save code</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>' +
+    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
 }
 function showBadges() {
   Sfx.play('modal');
@@ -1715,6 +2054,7 @@ function bind() {
     if (t.dataset.move) { editor.move(+t.dataset.move); return; }
     if (t.dataset.speed) { S.speed = +t.dataset.speed; save(); document.querySelectorAll('[data-speed]').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed)); return; }
     if (t.dataset.gfx) { S.gfx = t.dataset.gfx; save(); World.setQuality(S.gfx); document.querySelectorAll('[data-gfx]').forEach(b => b.classList.toggle('on', b.dataset.gfx === S.gfx)); return; }
+    if (t.dataset.ts !== undefined) { S.ts = +t.dataset.ts || 0; save(); applyComfort(); document.querySelectorAll('[data-ts]').forEach(b => b.classList.toggle('on', +b.dataset.ts === S.ts)); return; }
     if (t.dataset.codex) { showCodex(t.dataset.codex); return; }
     if (t.dataset.trace !== undefined) { startTrace(+t.dataset.trace); return; }
     if (t.dataset.iv) { closeModal(); startInterview(t.dataset.iv); return; }
@@ -1752,8 +2092,16 @@ function bind() {
       case 'btn-mentor': Mentor.go(); break;
       case 'mentor-stop': Mentor.stop(); break;
       case 'btn-hint': { const s = st(cur.id); if (s.hints < cur.hints.length) { s.hints++; Sfx.play('hint'); save(); closeTrace(); renderHints(); $('hints').lastElementChild.scrollIntoView({ block: 'nearest' }); } break; }
-      case 'btn-forgot': confirmBox('Show the solution?', 'That is fine: forgetting is part of learning. You will see the model solution, and this level comes back tomorrow.', 'Show it', () => { if (cur && play.mode === 'review') reviewDone(cur, false); }); break;
-      case 'btn-reset': confirmBox('Reset your code?', 'The editor goes back to the starting code for this level.' + (play.mode === 'normal' ? ' Your stars are kept.' : ''), 'Reset the code', () => { editor.set(cur.starter); onCodeChange(); $('results').innerHTML = ''; setStatus(''); lastRes = null; buildArena(); }); break;
+      case 'btn-forgot':
+        if (play.mode === 'bug') confirmBox('Show the bug?', 'You will see the line that was changed.' + (play.bug && play.bug.paid && !play.bug.closed ? ' Today’s hunt then ends without XP.' : ''), 'Show it', () => { if (cur && play.mode === 'bug') bugDone(cur, false); });
+        else confirmBox('Show the solution?', 'That is fine: forgetting is part of learning. You will see the model solution, and this level comes back tomorrow.', 'Show it', () => { if (cur && play.mode === 'review') reviewDone(cur, false); });
+        break;
+      case 'btn-reset': {
+        const hunt = play.mode === 'bug' ? play.bug : null;
+        confirmBox('Reset your code?', hunt ? 'The editor goes back to the code with the bug in it.' : 'The editor goes back to the starting code for this level.' + (play.mode === 'normal' ? ' Your stars are kept.' : ''), 'Reset the code',
+          () => { editor.set(hunt ? hunt.code : cur.starter); onCodeChange(); $('results').innerHTML = ''; setStatus(''); lastRes = null; buildArena(); });
+        break;
+      }
       case 'btn-replay': if (cur && cur.kind === 'robot' && !busy) { World.resetRobot(); editor.markActive(null); } break;
       case 'sol-reveal': confirmBox('Reveal the solution?', 'You will see a full working answer. This level will then award 1 star instead of 3.', 'Reveal it', () => { st(cur.id).saw = true; save(); renderSolution(); }); break;
       case 'sol-load': editor.set(cur.solution); onCodeChange(); showTab('code'); break;
@@ -1771,8 +2119,21 @@ function bind() {
       case 'btn-board': case 'btn-board2': Sfx.play('modal'); showBoard(); break;
       case 'board-toggle': S.board = !S.board; save(); if (S.board) Cloud.flushNow().then(showBoard); else Cloud.leave().then(showBoard); break;
       case 'menu-close': closeModal(); break;
+      case 'opt-full': toggleFull(); break;
+      case 'opt-install': if (installEvt) { const ev = installEvt; installEvt = null; closeModal(); try { ev.prompt(); } catch (err) { /* the browser declined */ } } break;
+      case 'btn-tour':
+        S.tour = 0; save(); closeModal();
+        if (mode === 'level' && cur && cur.kind !== 'sandbox' && play.mode === 'normal') Tour.start(cur.kind === 'robot' ? 1 : 2, cur);
+        else { tourForce = true; toast('The tour starts with the next level you open.'); }
+        break;
+      case 'btn-savebox': showSaveBox(); break;
+      case 'save-copy': copySaveCode(); break;
+      case 'save-load': loadSaveCode(); break;
+      case 'bug-start': case 'bug-again': startBug(); break;
+      case 'coach-next': Tour.next(); break;
+      case 'coach-skip': Tour.end(); break;
       case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge, review date and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
-        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx };
+        const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc };
         clearInterval(ivTimer);
         S = Object.assign({ v: 1, cv: 3, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], t: 0 }, keep);
         save(); if (mode === 'level') closeLevel(); selectLevel(0, true); refreshProgress(); toast('Progress erased.');
@@ -1794,6 +2155,8 @@ function bind() {
     else if (id === 'opt-ac') { S.ac = e.target.checked; save(); editor.setComplete(S.ac); }
     else if (id === 'opt-replay') { S.replay = e.target.checked; save(); }
     else if (id === 'opt-pip') { S.pipTalk = e.target.checked; save(); if (!S.pipTalk) hush(); }
+    else if (id === 'opt-calm') { S.calm = e.target.checked; save(); applyComfort(); }
+    else if (id === 'opt-hc') { S.hc = e.target.checked; save(); applyComfort(); }
     else if (id === 'opt-sfx-vol') Sfx.play('pass');           // let them hear the new level
     else if (id === 'tr-test') startTrace(+e.target.value);
   });
@@ -1807,6 +2170,7 @@ function bind() {
   document.addEventListener('keydown', e => {
     Music.start();
     if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
+    if (e.key === 'Escape' && Tour.on) { e.preventDefault(); Tour.end(); return; }
     const a = document.activeElement, typing = a && /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName) && a.type !== 'range', onButton = a && a.tagName === 'BUTTON';
     if (mode === 'hub' && !typing) {
       if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); selectLevel(hubSel + 1); }
@@ -1820,6 +2184,7 @@ function bind() {
   });
   for (const ev of ['pointerdown', 'pointerup', 'click', 'touchend']) document.addEventListener(ev, () => Music.start(), true);
   window.addEventListener('pagehide', () => { if (cur) { keepCode(); save(); } });
+  document.addEventListener('fullscreenchange', () => { const b = $('opt-full'); if (b) b.textContent = (document.fullscreenElement ? 'Leave' : 'Enter') + ' full screen'; World.resize(); });
 }
 // On a phone the keyboard covers half the screen. When it opens, the page shrinks to the part that is still visible
 // and folds the 3D view away, so the editor, the suggestions and the Run button all stay in reach.
@@ -1843,6 +2208,7 @@ function watchViewport() {
 // ---------------------------------------------------------------- boot
 function boot() {
   loadLocal();
+  applyComfort();
   if (!LEVELS.length) { document.body.textContent = 'Pylon could not load its levels.'; return; }
   editor = window.PylonEditor($('editor'), { onRun: run, onChange: onCodeChange, strip: $('ac-strip'), complete: S.ac, onPick });
   bind();

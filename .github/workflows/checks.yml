@@ -1,0 +1,46 @@
+# Runs Pylon's own checks on every push: the levels against real Python and against the in-browser interpreter,
+# the interpreter against its conformance programs, the course as a whole, the bug hunt, and a real browser that
+# plays the first minutes of the game and then starts it again with the network switched off.
+name: checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Every script parses
+        run: for f in js/*.js sw.js tools/*.js tests/browser/*.js; do node --check "$f"; done
+      - name: Levels against CPython
+        run: python tools/check_levels.py
+      - name: Levels against the in-browser interpreter
+        run: node tools/check_minipy.js
+      - name: Interpreter conformance
+        run: node tools/run_conf.js
+      - name: Curriculum, reference cards and craft marks
+        run: node tools/check_curriculum.js
+      - name: Bug hunt
+        run: node tools/check_bughunt.js
+      - name: A real browser plays the game
+        run: |
+          npm install --no-save --no-package-lock --no-audit --no-fund --prefix "$PWD/.ci" puppeteer-core@24
+          NODE_PATH="$PWD/.ci/node_modules" node tests/browser/smoke.js
+      - name: Keep the screenshot of a failed browser run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure
+          path: tests/browser/failure.png
+          if-no-files-found: ignore

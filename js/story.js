@@ -85,6 +85,9 @@
     clean: ['Four marks. I could read that code, and I am a drone.', 'Clean. The last crew never wrote like this.', 'Short, clear, tidy. I am keeping a copy.'],
     help: ['Solved, with help. A clean attempt is still open.', 'It works. Next time, try it without the hint.'],
     back: ['You came back. I kept one light on.', 'I counted the days. I count everything.'],
+    // the bug hunt: a run that still fails, and the repair
+    bug: ['Still broken. The bug is one small thing.', 'Read each line and ask what it should do. One of them lies.', 'Step through. The first value that surprises you sits next to the bug.', 'Compare the failing test with the line that decides it.'],
+    bugok: ['Found it. Most days, this is the job.', 'One small thing. It usually is.', 'Repaired. I will hide the next one better.'],
   };
   root.PYLON_STORY = { LOGS, AUTHOR, EPILOGUE, LINES };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -7,6 +7,9 @@ const MP = root.MiniPy, FILE = MP.FILE;
 // A speed test allows PERF_FACTOR times the steps of the reference solution: generous enough for any solution of the
 // same complexity class (and one log factor worse), far too little for the next class down.
 const PERF_FACTOR = 16, PERF_SLACK = 600, TEST_STEPS = 3000000, LOAD_STEPS = 3000000, ROBOT_STEPS = 400000, MAX_ACTIONS = 500;
+// A quick run (opts.quick) is for code the game itself wrote, such as a candidate for the bug hunt: it may loop for ever,
+// so every part of it gets a small budget tied to what the model solution needs.
+const QUICK_LOAD = 200000, QUICK_SETUP = 200000;
 let PRELUDE = root.PYLON_PRELUDE || '';
 
 // What one run hands the program: the lines input() will read, and its files. A level can give files to all its tests.
@@ -59,15 +62,15 @@ function runTests(level, code, opts) {
   const res = { kind: 'code', ok: false, error: null, errorLine: null, output: '', tests: [], lines: countLines(code) };
   const printed = level.tests.some(t => t.stdout !== undefined);
   // A program that is judged by what it prints runs once for every test, each time with that test's input and files.
-  const s = session(null, ioOf(level, printed ? level.tests[0] : null));
-  const load = s.exec(code, 0, LOAD_STEPS);
+  const s = session(null, ioOf(level, printed ? level.tests[0] : null)), loadSteps = opts.quick ? QUICK_LOAD : LOAD_STEPS;
+  const load = s.exec(code, 0, loadSteps);
   res.output = load.output;
   if (!load.ok) { res.error = load.error; res.errorLine = userLine(load.error); return res; }
   if (printed) {
     level.tests.forEach((t, i) => {
-      const r = i === 0 ? load : session(null, ioOf(level, t)).exec(code, 0, LOAD_STEPS);
+      const r = i === 0 ? load : session(null, ioOf(level, t)).exec(code, 0, loadSteps);
       res.tests.push({ index: i, ok: r.ok && normOut(r.output) === normOut(t.stdout), stdout: true, expect: normOut(t.stdout), got: normOut(r.output), stdin: t.stdin !== undefined ? String(t.stdin) : null,
-        error: r.ok ? null : r.error, errorLine: r.ok ? null : userLine(r.error), steps: r.steps });
+        error: r.ok ? null : r.error, errorLine: r.ok ? null : userLine(r.error), steps: r.steps, slow: !r.ok && !!r.error && r.error.abort === 'steps' });
     });
     res.ok = res.tests.every(t => t.ok);
     return res;
@@ -85,11 +88,11 @@ function runTests(level, code, opts) {
     setIo(s, io);
     if (Object.keys(io.files).length) tr.files = io.files;
     if (t.setup) {
-      const r = s.exec(t.setup, base, TEST_STEPS);
+      const r = s.exec(t.setup, base, opts.quick ? QUICK_SETUP : TEST_STEPS);
       tr.output += r.output;
-      if (!r.ok) { tr.error = r.error; tr.errorLine = userLine(r.error); return; }
+      if (!r.ok) { tr.error = r.error; tr.errorLine = userLine(r.error); tr.slow = r.error.abort === 'steps'; return; }
     }
-    const budget = t.perf && !opts.noLimit ? Math.round(ref[i] * PERF_FACTOR + PERF_SLACK) : (opts.noLimit ? 6e7 : TEST_STEPS);
+    const budget = (t.perf || opts.quick) && !opts.noLimit ? Math.min(TEST_STEPS, Math.round(ref[i] * PERF_FACTOR + PERF_SLACK)) : (opts.noLimit ? 6e7 : TEST_STEPS);
     if (t.perf) { tr.budget = Math.round(ref[i] * PERF_FACTOR + PERF_SLACK); tr.refSteps = ref[i]; }
     const r = s.eval(t.call, base, budget);
     tr.output += r.output; tr.steps = r.steps;

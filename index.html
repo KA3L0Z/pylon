@@ -13,6 +13,12 @@
 <meta property="og:image" content="https://ka3l0z.github.io/pylon/docs/level.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23070b1a'/%3E%3Cpath d='M32 9 52 20.5v23L32 55 12 43.5v-23z' fill='none' stroke='%234fe3d0' stroke-width='5' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23ffc247'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pylon">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>
@@ -495,7 +501,9 @@ p { margin: 0; }
 #app.kb .p-title .eyebrow, #app.kb .tabs, #app.kb .taskbox, #app.kb .cmds, #app.kb #feedback, #app.kb .iv-bar, #app.kb #p-stars { display: none; }
 #app.kb .p-head { padding-top: 6px; padding-bottom: 6px; }
 #app.kb #tab-code { padding-top: 8px; padding-bottom: 8px; gap: 6px; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+/* less motion: when the system asks for it, unless the Menu says otherwise (.motion), or when the Menu asks for it (.calm) */
+@media (prefers-reduced-motion: reduce) { :root:not(.motion) *, :root:not(.motion) *::before, :root:not(.motion) *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+:root.calm *, :root.calm *::before, :root.calm *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 .eff b { color: var(--amber); }
 /* briefings: the lesson for the next level, read one level early */
 .tabs button.dot::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 10px var(--amber); vertical-align: 2px; }
@@ -553,7 +561,8 @@ button.tc-head:hover::after { color: var(--accent); }
 #pip-say::before { content: "PIP"; display: block; font: 600 11px/1 var(--display); letter-spacing: .2em; color: #4fe3d0; margin-bottom: 5px; }
 #pip-say.in { animation: sayin .3s var(--ease) both; }
 @keyframes sayin { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { #pip-say.in { animation: none; } }
+@media (prefers-reduced-motion: reduce) { :root:not(.motion) #pip-say.in { animation: none; } }
+:root.calm #pip-say.in { animation: none; }
 .mode-hub #pip-say { display: none; }
 .tlog { margin: 14px 0; padding: 14px 16px 12px; background: #080c1c; border: 1px solid var(--line-2); border-left: 3px solid var(--zc, var(--accent)); border-radius: 4px; }
 .tlog > span { display: block; font: 600 12px/1.3 var(--display); letter-spacing: .17em; text-transform: uppercase; color: var(--zc, var(--accent)); margin-bottom: 8px; }
@@ -604,6 +613,47 @@ button.tc-head:hover::after { color: var(--accent); }
   .tabs button { padding: 13px 8px 11px; font-size: 14px; letter-spacing: .1em; }
   .tc-out { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+
+/* comfort settings from the Menu: larger text and more contrast. The reading areas are enlarged as a whole; the editor
+   gets its own sizes because it measures its letters. */
+.ts-1 { --tz: 1.12; } .ts-2 { --tz: 1.25; }
+:is(.ts-1, .ts-2) :is(#tab-lesson, #tab-tools, #tab-solution, #task-body, #cmds, #ed-note, #feedback, #modal-body, #pip-say, #toasts) { zoom: var(--tz); }
+.ts-1 .ed { --lh: 26px; font-size: 16.5px; } .ts-2 .ed { --lh: 29px; font-size: 18.5px; }
+.ts-1 #coach p { font-size: 17px; } .ts-2 #coach p { font-size: 19px; }
+@media (pointer: coarse) { .ts-1 .ed { --lh: 27px; font-size: 17.5px; } .ts-2 .ed { --lh: 30px; font-size: 19px; } }
+:root.hc { --line: #4a5aa8; --line-2: #8394e2; --ink-2: #eef1ff; --mute: #c6cef2; }
+.hc .stars i:not(.on) { color: #7481c2; }
+.hc .ed-gutter, .hc .c, .hc .vz-cell i, .hc .ac-strip:empty::before { color: #aab5e2; }
+.hc :focus-visible { outline-width: 3px; }
+/* a row of choices drops under its label when the two do not fit side by side */
+.row:has(> .segs) { flex-wrap: wrap; }
+.row:has(> .segs) > span:first-child { flex: 1 1 150px; }
+
+/* the first-time tour: a note and a ring around the part of the screen it is about */
+#coach { position: fixed; z-index: 28; width: min(330px, calc(100vw - 24px)); padding: 14px 16px 12px; background: #0d1430; border: 1px solid var(--amber); border-radius: 6px; box-shadow: 0 18px 44px -12px #000, 0 0 0 1px #00000080; animation: rise .24s var(--ease); }
+#coach p { margin: 0 0 12px; font-size: 15.5px; line-height: 1.5; }
+.coach-foot { display: flex; align-items: center; gap: 14px; }
+#coach-n { margin-right: auto; font: 600 12px/1 var(--display); letter-spacing: .16em; color: var(--mute); }
+#coach .btn { min-height: 36px; padding: 0 16px; }
+#coach .linkbtn { color: var(--mute); font-weight: 500; }
+#coach-ring { position: fixed; z-index: 27; pointer-events: none; border: 2px solid var(--amber); border-radius: 6px; box-shadow: 0 0 0 4px #ffc24730, 0 0 28px -6px var(--amber); transition: left .25s var(--ease), top .25s var(--ease), width .25s var(--ease), height .25s var(--ease); }
+#modal:not([hidden]) ~ #coach, #modal:not([hidden]) ~ #coach-ring { display: none; }
+
+/* bug hunt */
+#task-body .bugnote { margin: 0 0 12px; padding: 10px 12px; background: #2a1420; border: 1px solid #70293a; border-left: 3px solid var(--fail); border-radius: 4px; }
+.bugnote b { color: #ffb3bf; }
+.bugdiff { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 14px 0 4px; }
+.bugdiff > span { font: 600 12px/1 var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+.bugdiff pre.code { margin: 0 0 6px; }
+.bugdiff pre.code:first-of-type { border-color: #70293a; }
+.bugdiff pre.code:last-of-type { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+
+/* the save code */
+.savebox { display: block; width: 100%; min-height: 76px; font: 400 12.5px/1.5 var(--mono); color: var(--ink-2); background: #060916; border: 1px solid var(--line-2); border-radius: 3px; padding: 8px 10px; resize: vertical; word-break: break-all; }
+.savebox:focus { outline: none; border-color: var(--accent); }
+#save-msg { margin: 8px 0 0; min-height: 1.4em; }
+#save-msg.bad { color: var(--fail); }
+@media (pointer: coarse) { .savebox { font-size: 16px; } }
 </style>
 </head>
 <body>
@@ -632,7 +682,7 @@ button.tc-head:hover::after { color: var(--accent); }
     </div>
     <div class="tools">
       <button type="button" class="btn" id="btn-review">Review</button>
-      <button type="button" class="btn" id="btn-interview">Interview</button>
+      <button type="button" class="btn" id="btn-interview">Challenges</button>
       <button type="button" class="btn" id="btn-lab">Scratchpad</button>
       <button type="button" class="btn sec" id="btn-codex">Codex</button>
       <button type="button" class="btn sec" id="btn-badges">Badges</button>
@@ -696,6 +746,8 @@ button.tc-head:hover::after { color: var(--accent); }
 
   <div id="modal" hidden><div class="modal-card" role="dialog" aria-modal="true"><div id="modal-body"></div></div></div>
   <div id="toasts" aria-live="polite"></div>
+  <div id="coach" role="dialog" aria-label="Tour" hidden><p id="coach-text"></p><div class="coach-foot"><span id="coach-n"></span><button type="button" class="linkbtn" id="coach-skip">Skip the tour</button><button type="button" class="btn primary" id="coach-next">Next</button></div></div>
+  <div id="coach-ring" hidden></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -705,8 +757,9 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/minipy-lib.js?v=023ffa9e"></script>
 <script src="js/minipy-mods.js?v=40a94720"></script>
 <script src="js/prelude.js?v=779f9a85"></script>
-<script src="js/runner.js?v=9611516f"></script>
+<script src="js/runner.js?v=ed16c564"></script>
 <script src="js/craft.js?v=146d8100"></script>
+<script src="js/bughunt.js?v=6c055900"></script>
 <script src="js/levels-z1.js?v=f2c34aa6"></script>
 <script src="js/levels-z2.js?v=44902b50"></script>
 <script src="js/levels-z3.js?v=9284c5ff"></script>
@@ -717,11 +770,16 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/levels-z8.js?v=be4b774f"></script>
 <script src="js/levels-z9.js?v=0e276f5f"></script>
 <script src="js/toolcards.js?v=bbd2f717"></script>
-<script src="js/story.js?v=ce8d2b91"></script>
+<script src="js/story.js?v=d0085020"></script>
 <script src="js/curriculum.js?v=9c74b978"></script>
 <script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
-<script src="js/world.js?v=6d732f4a"></script>
-<script src="js/game.js?v=ceba8dc4"></script>
+<script src="js/world.js?v=485a6e94"></script>
+<script src="js/game.js?v=a8cecbbb"></script>
+<script>
+if ("serviceWorker" in navigator) window.addEventListener("load", function () {
+  navigator.serviceWorker.register("sw.js").catch(function () { /* no offline copy here: the game works without one */ });
+});
+</script>
 </body>
 </html>

@@ -13,7 +13,8 @@ if (!T) return;
 
 const RISE = 2, RADIUS = 10, PER_TURN = 8, TAU = Math.PI * 2;
 const mq = q => !!(root.matchMedia && root.matchMedia(q).matches);
-const calm = mq('(prefers-reduced-motion: reduce)'), coarse = mq('(pointer: coarse)');
+let calm = mq('(prefers-reduced-motion: reduce)');           // the Menu can override what the system asks for
+const coarse = mq('(pointer: coarse)');
 const FONT = "'Barlow Condensed', 'Arial Narrow', 'Trebuchet MS', sans-serif";
 let renderer, scene, camera, stage, canvas, glowTex, gridTex, sun, rim, hemi, sky, dust, starsB, bloom = null;
 let hub, arena, pip, hubPip, selRing, beacon, beaconGlow, parts, shellPaint = 0x8f97b3;
@@ -61,7 +62,12 @@ function stepTweens(dt) {
     if (k >= 1) { tweens.splice(i, 1); t.res(); }
   }
 }
-function cancelAll() { epoch++; const old = tweens.splice(0); for (const t of old) t.res(); }
+function cancelAll() {
+  epoch++;
+  const old = tweens.splice(0);
+  for (const t of old) t.res();
+  if (beam) beam.material.opacity = 0;             // a shot that was fading out when the show was skipped
+}
 function canvasTex(c) { const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.anisotropy = 4; return t; }
 function makeGlow() {
   const c = document.createElement('canvas');
@@ -1047,6 +1053,7 @@ function frame(now, fromTimer) {
 }
 W.mood = m => { if (mode === 'arena' && pip) setMood(pip, m); };
 // PIP's shell colour, on the tower and in the arena.
+W.setCalm = v => { calm = !!v; };
 W.setPaint = function (hex) { shellPaint = hex; for (const p of [hubPip, pip]) if (p && p.userData.shell) setLin(p.userData.shell.color, hex); };
 
 // A small studio of coloured lamps that every shiny surface reflects. It is never seen directly.

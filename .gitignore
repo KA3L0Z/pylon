@@ -1,0 +1,5 @@
+# what the browser test leaves behind
+node_modules/
+.ci/
+tests/browser/failure.png
+__pycache__/
