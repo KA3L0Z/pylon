@@ -1,5 +1,5 @@
 # Runs Pylon's own checks on every push: the levels against real Python and against the in-browser interpreter,
-# the interpreter against its conformance programs, the course as a whole, the bug hunt, and a real browser that
+# the interpreter against its conformance programs, the course as a whole, the bug hunt, the scenes, and a real browser that
 # plays the first minutes of the game and then starts it again with the network switched off.
 name: checks
 on:
@@ -33,6 +33,8 @@ jobs:
         run: node tools/check_curriculum.js
       - name: Bug hunt
         run: node tools/check_bughunt.js
+      - name: Scenes of the code levels
+        run: node tools/check_scenes.js
       - name: A real browser plays the game
         run: |
           npm install --no-save --no-package-lock --no-audit --no-fund --prefix "$PWD/.ci" puppeteer-core@24

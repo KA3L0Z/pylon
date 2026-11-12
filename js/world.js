@@ -460,7 +460,7 @@ function clearArena() {
   if (arena) { scene.remove(arena); dispose(arena); }
   arena = new T.Group();
   scene.add(arena);
-  board = null; crystals = []; lock = null; beam = null; pip = null;
+  board = null; crystals = []; lock = null; beam = null; pip = null; sc = null;
   data = null; dataCam = null; aty = null; lockHidden = false;
   mode = 'arena';
   hub.visible = false;
@@ -709,7 +709,7 @@ function setCrystal(i, state) {
 }
 W.resetTests = function () { cancelAll(); acamT.az = Math.PI / 2; crystals.forEach((c, i) => setCrystal(i, 'idle')); if (pip) setMood(pip, 'idle'); if (lock) lock.visible = true; };
 function fireBeam(to) {
-  const from = new T.Vector3(pip.position.x, pip.position.y + 1.1, pip.position.z), d = to.clone().sub(from), len = d.length();
+  const from = new T.Vector3(pip.position.x, pip.position.y + 0.52 * pip.scale.y, pip.position.z), d = to.clone().sub(from), len = d.length();       // from the tip of the antenna
   beam.scale.set(1, len, 1);
   beam.position.copy(from).add(to).multiplyScalar(0.5);
   beam.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize());
@@ -803,10 +803,11 @@ function dataGeos() {
   return dataGeo;
 }
 // The camera makes room for the data while it is shown, and goes back when it is taken away.
+const dataBase = () => (sc ? Math.max(3.15, sc.tall + 0.45) : 3.15);          // over a scene, the data floats above whatever stands tallest
 function frameData(on) {
   if (on) {
-    if (!dataCam) dataCam = { y: atarget.y, dist: acamT.dist, el: acamT.el };
-    aty = 2.9; acamT.dist = fitDist(6.3, 0.3); acamT.el = 0.3;
+    if (!dataCam) dataCam = { y: aty !== null ? aty : atarget.y, dist: acamT.dist, el: acamT.el };
+    aty = dataBase() - 0.25; acamT.dist = fitDist(6.3, 0.3); acamT.el = 0.3;
     if (lock && lock.visible) { lock.visible = false; lockHidden = true; }          // the boss lock would stand behind the data
   } else {
     if (dataCam) { aty = dataCam.y; acamT.dist = dataCam.dist; acamT.el = dataCam.el; dataCam = null; }
@@ -890,7 +891,7 @@ W.showData = function (rows) {
     top -= b.h;
   }
   group.scale.setScalar(scale);
-  group.position.set(0, 3.15 + totalH * scale / 2, -1.2);
+  group.position.set(0, dataBase() + totalH * scale / 2, sc ? 0 : -1.2);
   arena.add(group);
   lit(group);
   data = { group };
@@ -903,6 +904,516 @@ W.showData = function (rows) {
     const base = hot.map(h => h.scale.clone());
     tween(0.3, k => { hot.forEach((h, n) => h.scale.copy(base[n]).multiplyScalar(1 + 0.32 * (1 - k))); }, easeOut);
   }
+};
+
+// ---------------------------------------------------------------- arena: scenes for code levels
+// A code level is staged like a drone deck: a floor with things standing on it, taken from one of the level's tests, and
+// PIP acting out on them whatever the player's code returned. js/scenes.js decides what stands where and what happens
+// (a stage and a list of beats); this part only knows how to build the pieces and how to play a beat.
+const SHADE = { ok: 0x5fe3a1, bad: 0xff5d73, pick: 0xffc247, dim: 0x141b40, off: 0x2a3676 };
+const OKC = '#5fe3a1', BADC = '#ff5d73', PIP_SIZE = 1.4;
+const TINTS = [0x4fe3d0, 0xffc247, 0xb18cff, 0x6cb8ff, 0xa3e635, 0xff9a62];        // c0 to c5: colours for telling groups apart
+const inset = { top: 50, bottom: 20 };                // pixels of the view that the page's own labels cover
+let sc = null, unitBox = null, unitEdge = null, labelGeo = null, ballGeo = null, tileTex = null;
+const clamp01 = v => Math.max(0, Math.min(1, v));
+function sceneGeos() {
+  if (unitBox) return;
+  const share = g => { g.userData.shared = true; return g; };
+  unitBox = share(new T.BoxGeometry(1, 1, 1)); unitEdge = share(new T.EdgesGeometry(unitBox)); labelGeo = share(new T.PlaneGeometry(1, 0.5)); ballGeo = share(new T.SphereGeometry(0.34, 24, 16));
+  // the deck of a scene: square plates with a seam between them and a mark at every corner
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = '#fff'; g.globalAlpha = 0.42; g.lineWidth = 2; g.strokeRect(0, 0, 128, 128);
+  g.globalAlpha = 1; g.fillStyle = '#fff';
+  for (const [x, y] of [[0, 0], [128, 0], [0, 128], [128, 128]]) { g.fillRect(x - 10, y - 1.5, 20, 3); g.fillRect(x - 1.5, y - 10, 3, 20); }
+  tileTex = canvasTex(c);
+}
+// Text standing in the world, as large as its place allows: at most maxW wide, with letters at most maxH high.
+function labelSize(text, maxW, maxH) {
+  const len = Math.max(1, text.length), em = Math.min(maxH, maxW / (0.6 * len));
+  return { wide: Math.max(1, Math.ceil((len * 46.8 + 24) / 64) / 4), size: em * 3.28 };
+}
+function sceneLabel(text, color, maxW, maxH) {
+  text = String(text);
+  const f = labelSize(text, maxW, maxH), m = new T.Mesh(labelGeo, labelMat(text, color, '600', f.wide));
+  m.scale.set(f.size * f.wide, f.size, 1);
+  m.renderOrder = 2;
+  m.userData = { text, color, maxW, maxH };
+  return m;
+}
+function relabel(m, color, text) {
+  const u = m.userData;
+  if (text !== undefined) u.text = String(text);
+  u.color = color;
+  const f = labelSize(u.text, u.maxW, u.maxH);
+  m.material = labelMat(u.text, color, '600', f.wide);
+  m.scale.set(f.size * f.wide, f.size, 1);
+}
+// Something that stands above the deck gets a step under it.
+function riser(g, wid, dep, h) {
+  const m = new T.Mesh(unitBox, sc.stepMat);
+  m.scale.set(wid, h, dep); m.position.y = -h / 2;
+  g.add(m);
+}
+// One piece of a scene: what it looks like, where PIP stands to work on it, and how it shows a state.
+function scenePiece(p) {
+  const g = new T.Group(), col = sc.col, y0 = p.y || 0, px = p.x || 0, pz = p.z || 0;
+  g.position.set(px, y0, pz);
+  // anchor: where a shot at the piece lands. top and half: how high and how wide it is. front and side: where PIP stands to work on it.
+  const piece = { p, g, anchor: new T.Vector3(px, y0 + 0.5, pz), top: y0 + 1, half: 0.5, front: 1.05, side: 0, mark() {}, text() {} };
+  const lamp = (color, k) => std(0x0d1436, { emissive: color, emissiveIntensity: k, roughness: 0.3, metalness: 0.5, envMapIntensity: 1.1 });
+  // on: the floor's own colour, lit. pick: the same colour turned up until it is nearly white, so it stands out on any floor.
+  const shade = s => (s === 'on' ? col : s === 'pick' ? col.clone().lerp(lin(0xffffff), 0.55) : /^c\d$/.test(s) ? lin(TINTS[s[1] % TINTS.length]) : lin(SHADE[s] !== undefined ? SHADE[s] : SHADE.off));
+  const line = k => new T.LineBasicMaterial({ color: col.clone().multiplyScalar(k), toneMapped: false });
+  switch (p.k) {
+    case 'crate': {
+      const wd = p.wd || 1, card = p.tone === 'card', wid = 0.8 * wd, hgt = card ? 0.56 : 0.8, dep = card ? 0.14 : 0.6, rest = p.tone === 'out' ? 0.34 : card ? 0.03 : 0.1;
+      const mat = lamp(col, rest), body = new T.Mesh(unitBox, mat), edgeMat = line(card ? 0.5 : p.tone === 'out' ? 1 : 0.6), edge = new T.LineSegments(unitEdge, edgeMat), base = edgeMat.color.clone(), ink = card ? AMBER : INK;
+      body.scale.set(wid, hgt, dep); edge.scale.copy(body.scale);
+      body.position.y = edge.position.y = hgt / 2;
+      const lab = sceneLabel(p.t, ink, wid - 0.1, card ? 0.34 : 0.5);
+      lab.position.set(0, hgt / 2, dep / 2 + 0.012);
+      g.add(body, edge, lab);
+      if (y0 > 0 && !p.air) riser(g, wid + 0.06, dep + 0.06, y0);
+      piece.anchor.y = y0 + hgt / 2; piece.top = y0 + hgt; piece.half = wid / 2;
+      piece.mark = s => { const c = shade(s), rested = s === 'off'; edgeMat.color.copy(rested ? base : c); mat.emissive.copy(rested ? col : c); mat.emissiveIntensity = s === 'dim' ? 0 : rested ? rest : 0.3; relabel(lab, s === 'dim' ? MUTE : ink); };
+      break;
+    }
+    case 'cell': {
+      const s = p.slim ? 0.8 : 1, mat = lamp(col, 0.9), ped = new T.Mesh(new T.CylinderGeometry(0.24 * s, 0.31 * s, 0.5, 14), sc.metal), core = new T.Mesh(new T.CylinderGeometry(0.19 * s, 0.19 * s, 0.56, 14), mat), cap = new T.Mesh(new T.CylinderGeometry(0.22 * s, 0.22 * s, 0.07, 14), sc.metal), gl = glow(0xffffff, 1.2, 0.3);
+      ped.position.y = 0.25; core.position.y = 0.78; cap.position.y = 1.09; gl.position.y = 0.78; gl.material.color.copy(col);
+      const lab = sceneLabel(p.t, INK, p.slim ? 0.74 : 1.02, 0.44);
+      lab.position.set(0, 1.48, 0);
+      g.add(ped, core, cap, gl, lab);
+      if (p.sub !== undefined && p.sub !== '') { const sub = sceneLabel(p.sub, MUTE, 0.44, 0.2); sub.position.set(0, 0.2, 0.31 * s + 0.02); g.add(sub); }
+      piece.anchor.y = y0 + 0.78; piece.top = y0 + 1.8; piece.half = 0.42 * s;
+      piece.mark = st => {
+        const c = st === 'off' ? col : shade(st), up = st === 'pick' ? 0.2 : 0;
+        mat.emissive.copy(c); mat.emissiveIntensity = st === 'dim' ? 0.04 : st === 'off' ? 0.9 : st === 'pick' ? 1.9 : 1.3;
+        gl.material.color.copy(c); gl.material.opacity = st === 'dim' ? 0.03 : st === 'off' ? 0.3 : st === 'pick' ? 0.75 : 0.5;
+        core.position.y = gl.position.y = 0.78 + up; cap.position.y = 1.09 + up; lab.position.y = 1.48 + up;
+        relabel(lab, st === 'dim' ? MUTE : INK);
+      };
+      break;
+    }
+    case 'bar': {
+      const hh = Math.max(0.12, Math.abs(p.h)), wid = p.slim ? 0.5 : 0.62, water = p.tone === 'water', neg = p.h < 0, rest = neg ? 0.06 : 0.42;
+      const mat = water ? std(0x1a4c8f, { emissive: 0x3fa3ff, emissiveIntensity: 0.7, transparent: true, opacity: 0.62, roughness: 0.15, metalness: 0.1, depthWrite: false }) : lamp(col, rest), body = new T.Mesh(unitBox, mat);
+      if (neg) { mat.transparent = true; mat.opacity = 0.55; }                      // a number below zero: a hollow bar
+      body.scale.set(water ? wid * 1.5 : wid, hh, water ? wid * 0.92 : wid); body.position.y = hh / 2;
+      g.add(body);
+      let edgeMat = null, lab = null;
+      if (!water) { edgeMat = line(0.9); const edge = new T.LineSegments(unitEdge, edgeMat); edge.scale.copy(body.scale); edge.position.y = hh / 2; g.add(edge); }
+      if (p.t) { lab = sceneLabel(p.t, INK, p.slim ? 0.74 : 0.92, 0.4); lab.position.set(0, hh + 0.36, 0); g.add(lab); }
+      piece.anchor.y = y0 + hh; piece.top = y0 + hh + (p.t ? 0.75 : 0.05); piece.half = wid / 2;
+      piece.mark = st => {
+        if (water) return;
+        const c = st === 'off' ? col : shade(st);
+        mat.emissive.copy(c); mat.emissiveIntensity = st === 'off' ? rest : st === 'pick' ? 0.5 : 0.7;
+        edgeMat.color.copy(st === 'off' ? col.clone().multiplyScalar(0.9) : c);
+      };
+      break;
+    }
+    case 'tile': {
+      const base = { land: [col, 0.5], sea: [lin(0x0a1030), 0], plain: [lin(0x26347a), 0.3], start: [lin(SHADE.pick), 0.6], goal: [lin(SHADE.ok), 0.6], good: [lin(SHADE.ok), 0.7], wrong: [lin(SHADE.bad), 0.75] }[p.tone || 'plain'];
+      const mat = lamp(base[0], base[1]), body = new T.Mesh(unitBox, mat), up = new T.Group();
+      body.scale.set(0.9, 0.12, 0.9); body.position.y = 0.06;
+      up.add(body);
+      if (p.t) { const lab = sceneLabel(p.t, INK, 0.76, 0.46); lab.rotation.x = -Math.PI / 2; lab.position.set(0, 0.127, 0.02); up.add(lab); }
+      g.add(up);
+      piece.anchor.y = y0 + 0.14; piece.top = y0 + 0.3; piece.half = 0.45; piece.front = 0;
+      // a tile that is counted or walked over lights up whiter and rises a little
+      piece.mark = st => { const lifted = st === 'on' || /^c\d$/.test(st); mat.emissive.copy(st === 'off' ? base[0] : shade(st)); mat.emissiveIntensity = st === 'off' ? base[1] : 0.85; up.position.y = lifted ? 0.09 : 0; };
+      break;
+    }
+    case 'node': {
+      const s = p.big ? 1.3 : 1, mat = lamp(col, 0.3), ball = new T.Mesh(ballGeo, mat), lab = sceneLabel(p.t, INK, 0.6 * s, 0.4 * s);
+      ball.position.y = 0.55; ball.scale.setScalar(s); lab.position.set(0, 0.55, 0.36 * s);
+      g.add(ball, lab);
+      if (!p.air) { const stem = new T.Mesh(new T.CylinderGeometry(0.05, 0.17, 0.24, 10), sc.metal); stem.position.y = 0.12; g.add(stem); if (y0 > 0) riser(g, 0.62, 0.62, y0); }
+      piece.anchor.y = y0 + 0.55; piece.top = y0 + 0.55 + 0.4 * s; piece.half = 0.36 * s;
+      piece.mark = st => { mat.emissive.copy(st === 'off' ? col : shade(st)); mat.emissiveIntensity = st === 'off' ? 0.3 : st === 'dim' ? 0.02 : 0.62; };
+      break;
+    }
+    case 'sign': {
+      const mh = 0.33 * (p.sz || 1), mw = p.wd || 1.4, own = { mute: MUTE, amber: AMBER, ok: OKC, bad: BADC }[p.tone] || INK, lab = sceneLabel(p.t, own, mw, mh);
+      const plate = new T.Mesh(labelGeo, basic(0x070b1e, { transparent: true, opacity: 0.74, depthWrite: false })), rule = new T.Mesh(unitBox, basic(col));
+      plate.scale.set(mw + 0.3, (mh + 0.24) * 2, 1); plate.position.z = -0.02; plate.renderOrder = 1;
+      rule.scale.set(mw + 0.3, 0.022, 0.01); rule.position.set(0, -(mh + 0.24) / 2, -0.01);
+      g.rotation.x = -0.2;
+      g.add(plate, rule, lab);
+      piece.anchor.y = y0; piece.top = y0 + mh; piece.half = mw / 2 + 0.15; piece.front = 1.2;
+      piece.text = (t, tone) => relabel(lab, tone === 'ok' ? OKC : tone === 'bad' ? BADC : own, t);
+      piece.mark = st => relabel(lab, st === 'ok' ? OKC : st === 'bad' ? BADC : st === 'pick' ? AMBER : own);
+      break;
+    }
+    case 'lamp': case 'flag': {
+      const flag = p.k === 'flag', h = flag ? 1.3 : Math.max(0.4, y0), rest = flag ? SHADE.pick : SHADE.off, mat = basic(rest), post = new T.Mesh(new T.CylinderGeometry(0.03, 0.045, h, 6), sc.metal), ball = new T.Mesh(new T.SphereGeometry(flag ? 0.13 : 0.17, 14, 10), mat), gl = glow(SHADE.pick, 1.3, flag ? 0.5 : 0);
+      g.position.y = 0;
+      post.position.y = h / 2; ball.position.y = h; gl.position.y = h;
+      g.add(post, ball, gl);
+      if (flag) {
+        const ring = new T.Mesh(new T.TorusGeometry(0.34, 0.03, 6, 24), mat);
+        ring.rotation.x = Math.PI / 2; ring.position.y = 0.03;
+        g.add(ring);
+        if (p.t) { const lab = sceneLabel(p.t, AMBER, 1.3, 0.24); lab.position.y = h + 0.36; g.add(lab); }
+      }
+      piece.anchor.set(px, h, pz); piece.top = h + (flag ? 0.6 : 0.25); piece.half = 0.3; piece.front = flag ? 0 : 1;
+      piece.mark = st => { const c = st === 'off' ? lin(rest) : shade(st); mat.color.copy(c); gl.material.color.copy(c); gl.material.opacity = st === 'off' ? (flag ? 0.5 : 0) : 0.75; };
+      break;
+    }
+    case 'slot': {
+      const wid = 0.8 * (p.wd || 1) + 0.04, mat = line(0.8), sq = new T.LineSegments(unitEdge, mat);
+      sq.scale.set(wid, 0.05, 0.64); sq.position.y = 0.03;
+      g.add(sq);
+      if (y0 > 0) riser(g, wid + 0.02, 0.66, y0);
+      piece.anchor.y = y0 + 0.05; piece.top = y0 + 0.1; piece.half = wid / 2; piece.front = 0;
+      piece.mark = st => mat.color.copy(st === 'off' ? col.clone().multiplyScalar(0.8) : shade(st));
+      break;
+    }
+    case 'pad': {
+      const slab = new T.Mesh(unitBox, sc.stepMat), lines = tileTex.clone(), rim = new T.LineSegments(unitEdge, line(1));
+      lines.needsUpdate = true; lines.wrapS = lines.wrapT = T.RepeatWrapping; lines.repeat.set(Math.max(1, Math.round(p.wd)), Math.max(1, Math.round(p.dp)));
+      const top = new T.Mesh(new T.PlaneGeometry(p.wd - 0.14, p.dp - 0.14), std(0x070b1e, { emissive: col, emissiveMap: lines, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.55, envMapIntensity: 1.2 }));
+      slab.scale.set(p.wd, 0.5, p.dp); slab.position.y = -0.26; top.rotation.x = -Math.PI / 2; rim.scale.set(p.wd, 0.5, p.dp); rim.position.y = -0.26;
+      g.add(slab, top, rim);
+      piece.anchor.y = 0; piece.top = 0.1; piece.half = p.wd / 2;
+      break;
+    }
+    case 'link': {
+      g.position.set(0, 0, 0);
+      const a = new T.Vector3(p.a[0], p.a[1], p.a[2]), b = new T.Vector3(p.b[0], p.b[1], p.b[2]), dir = b.clone().sub(a), cut = Math.min(0.38, dir.length() / 3), mat = basic(col, { transparent: true, opacity: 0.85 });
+      dir.normalize();
+      const from = a.clone().addScaledVector(dir, cut), to = b.clone().addScaledVector(dir, -cut - (p.arrow ? 0.12 : 0)), rod = new T.Mesh(new T.CylinderGeometry(0.03, 0.03, 1, 6), mat);
+      rod.scale.y = Math.max(0.05, from.distanceTo(to)); rod.position.copy(from).add(to).multiplyScalar(0.5); rod.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), dir);
+      g.add(rod);
+      if (p.arrow) { const tip = new T.Mesh(new T.ConeGeometry(0.1, 0.26, 8), mat); tip.position.copy(to).addScaledVector(dir, 0.1); tip.quaternion.copy(rod.quaternion); g.add(tip); }
+      piece.anchor.copy(a).add(b).multiplyScalar(0.5); piece.top = Math.max(p.a[1], p.b[1]); piece.half = Math.abs(p.a[0] - p.b[0]) / 2;
+      piece.mark = st => mat.color.copy(st === 'off' ? col : shade(st));
+      break;
+    }
+    case 'gate': {
+      const leafMat = lamp(col, 0.25), barMat = basic(SHADE.off);
+      for (const sx of [-1, 1]) { const pil = new T.Mesh(unitBox, sc.metal); pil.scale.set(0.3, 2.2, 0.3); pil.position.set(sx * 1.1, 1.1, 0); g.add(pil); }
+      const lintel = new T.Mesh(unitBox, sc.metal), bar = new T.Mesh(unitBox, barMat), leaves = [-1, 1].map(sx => { const l = new T.Mesh(unitBox, leafMat); l.scale.set(0.95, 2.1, 0.1); l.position.set(sx * 0.475, 1.07, 0); g.add(l); return l; });
+      lintel.scale.set(2.5, 0.3, 0.34); lintel.position.y = 2.33; bar.scale.set(1.6, 0.06, 0.36); bar.position.y = 2.15;
+      const lab = sceneLabel(p.t || ' ', INK, 4.4, 0.34);
+      lab.position.set(0, 2.95, 0); lab.rotation.x = -0.15;
+      g.add(lintel, bar, lab);
+      piece.anchor.y = y0 + 1.2; piece.top = y0 + 3.3; piece.half = 2.3; piece.front = 1.7;
+      piece.text = (t, tone) => relabel(lab, tone === 'ok' ? OKC : tone === 'bad' ? BADC : INK, t);
+      piece.open = async (dur, alive) => {
+        barMat.color.copy(lin(SHADE.ok)); leafMat.emissive.copy(lin(SHADE.ok)); leafMat.emissiveIntensity = 0.8;
+        await tween(dur(0.45), k => { if (alive()) leaves.forEach((l, i) => { l.position.x = (i ? 1 : -1) * (0.475 + k * 0.42); l.scale.x = 0.95 * (1 - k * 0.88); }); }, easeOut);
+      };
+      piece.jam = async (dur, alive) => {
+        barMat.color.copy(lin(SHADE.bad)); leafMat.emissive.copy(lin(SHADE.bad)); leafMat.emissiveIntensity = 0.8;
+        await tween(dur(0.35), k => { if (alive()) g.position.x = px + Math.sin(k * 30) * 0.06 * (1 - k); }, x => x);
+        g.position.x = px;
+      };
+      break;
+    }
+    case 'bridge': {
+      g.position.set(0, 0, 0);
+      const n = p.n, planks = [], ghostMat = line(0.34);
+      for (let k = 0; k < n; k++) {
+        const m = std(0x10183f, { emissive: col, emissiveIntensity: 0.16, roughness: 0.3, metalness: 0.6, transparent: true, opacity: 1 }), pl = new T.Mesh(unitBox, m), mark = new T.LineSegments(unitEdge, ghostMat), x = px + k * p.pitch;
+        pl.scale.set(p.pitch * 0.9, 0.14, 1.3); pl.position.set(x, -0.07, pz); pl.visible = false;
+        mark.scale.copy(pl.scale); mark.position.copy(pl.position);              // where the plank will be, before there is one, and its lit edge afterwards
+        g.add(pl, mark);
+        let lab = null;
+        if (p.labels && p.labels[k] !== '') { lab = sceneLabel(p.labels[k], AMBER, p.pitch - 0.1, 0.34); lab.position.set(x, 0.66, pz - 0.3); g.add(lab); }
+        planks.push({ pl, m, lab, mark, x });
+      }
+      piece.anchor.set(px + (n - 1) * p.pitch / 2, 0.2, pz); piece.top = 1.1; piece.half = n * p.pitch / 2;
+      piece.extend = async (dur, alive, ghost) => {
+        for (const q of planks) { q.pl.visible = true; q.m.opacity = ghost ? 0.3 : 1; q.m.depthWrite = !ghost; }
+        if (!ghost) ghostMat.color.copy(col);
+        await tween(dur(0.3 + n * 0.02), k => { if (alive()) planks.forEach((q, i) => { q.pl.scale.x = p.pitch * 0.9 * Math.max(0.01, clamp01(k * (n + 1) - i)); }); }, x => x);
+      };
+      piece.snap = async (dur, alive, at, quiet) => {
+        const q = planks[Math.max(0, Math.min(n - 1, at))];
+        q.m.emissive.copy(lin(SHADE.bad)); q.m.emissiveIntensity = 1.1; q.m.opacity = 1; q.m.depthWrite = true;
+        q.mark.visible = false;
+        if (q.lab) relabel(q.lab, BADC);
+        if (!quiet) { burst(new T.Vector3(q.x, 0.1, pz), 0xff6b7d, 26, 3, 1.2); sfx('crash'); }
+        await tween(dur(0.5), k => { if (alive()) { q.pl.position.y = -0.07 - k * 5; q.pl.rotation.z = k * 1.6; } }, easeIn);
+        q.pl.visible = false;
+      };
+      break;
+    }
+    case 'tube': {
+      const H = 2.5, glass = new T.Mesh(new T.CylinderGeometry(0.5, 0.5, H, 28, 1, true), std(0x9fb4ff, { transparent: true, opacity: 0.17, roughness: 0.05, metalness: 0.2, side: T.DoubleSide, envMapIntensity: 1.6, depthWrite: false }));
+      const liqMat = lamp(col, 0.95), liq = new T.Mesh(new T.CylinderGeometry(0.43, 0.43, 1, 24), liqMat), foot = new T.Mesh(new T.CylinderGeometry(0.62, 0.7, 0.2, 24), sc.metal), cap = new T.Mesh(new T.CylinderGeometry(0.56, 0.56, 0.12, 24), sc.metal);
+      const rotor = new T.Mesh(unitBox, basic(col)), ringMat = basic(SHADE.pick), ring = new T.Mesh(new T.TorusGeometry(0.57, 0.035, 8, 32), ringMat);
+      glass.position.y = 0.2 + H / 2; liq.scale.y = 0.001; liq.position.y = 0.2; foot.position.y = 0.1; cap.position.y = 0.26 + H; rotor.scale.set(0.95, 0.05, 0.12); rotor.position.y = 0.4 + H;
+      ring.rotation.x = Math.PI / 2; ring.visible = false;
+      g.add(liq, foot, cap, rotor, ring, glass);
+      let level = 0, want = null;
+      const setLevel = v => { level = v; liq.scale.y = Math.max(0.001, v * H); liq.position.y = 0.2 + v * H / 2; };
+      piece.anchor.y = y0 + 1.3; piece.top = y0 + H + 0.5; piece.half = 0.75; piece.front = 1.5;
+      piece.fill = async (dur, alive, to) => { const from = level; await tween(dur(0.7), k => { if (alive()) setLevel(from + (to - from) * k); }, easeInOut); setLevel(to); };
+      piece.ring = (at, t) => {
+        ring.visible = true; ring.position.y = 0.2 + at * H;
+        if (!t) return;
+        if (want) relabel(want, AMBER, t); else { want = sceneLabel(t, AMBER, 1.9, 0.24); g.add(want); }
+        want.position.set(-1.62, 0.2 + at * H, 0);
+      };
+      piece.spin = async (dur, alive, quiet) => {
+        liqMat.emissive.copy(lin(SHADE.ok)); ringMat.color.copy(lin(SHADE.ok));
+        if (!quiet) burst(new T.Vector3(px, 0.6 + H, pz), SHADE.ok, 24, 3, 1.5);
+        await tween(dur(0.6), k => { if (alive()) rotor.rotation.y = k * 14; }, easeOut);
+      };
+      piece.mark = st => liqMat.emissive.copy(st === 'off' ? col : shade(st));
+      break;
+    }
+    case 'screen': {
+      // the signal wall: lines of text drawn on one canvas. Letters keep a fixed pitch, so a wrong one can be boxed in red.
+      // The wall is as many letters wide as its longest line needs (p.cols), so short lines are written large.
+      const rows = p.rows.map(r => Object.assign({ shown: String(r.text).length, marks: null, hl: null }, r)), CW = 1280, X0 = 208, room = (CW - X0 - 24) / (p.cols || 36);
+      const RH = Math.round(Math.max(64, Math.min(132, 642 / rows.length, room * 2.25))), FS = Math.round(Math.min(RH * 0.62, room * 1.4)), TS = Math.round(Math.max(24, Math.min(34, RH * 0.3))), PITCH = Math.min(room, FS * 0.7);
+      const CH = rows.length * RH + 28, WID = 8.2, hgt = CH / CW * WID, cy = 0.5 + hgt / 2;
+      const cv = document.createElement('canvas'), accent = '#' + new T.Color(col).convertLinearToSRGB().getHexString();
+      cv.width = CW; cv.height = CH;
+      const tex = canvasTex(cv), face = new T.Mesh(new T.PlaneGeometry(WID, hgt), new T.MeshBasicMaterial({ map: tex, toneMapped: false })), back = new T.Mesh(unitBox, std(0x0a0f26, { roughness: 0.35, metalness: 0.5 })), rim = new T.LineSegments(unitEdge, line(1));
+      tex.generateMipmaps = false; tex.minFilter = T.LinearFilter;
+      back.scale.set(WID + 0.3, hgt + 0.3, 0.16); back.position.set(0, cy, -0.1); rim.scale.copy(back.scale); rim.position.copy(back.position); face.position.set(0, cy, 0);
+      for (const sx of [-1, 1]) { const leg = new T.Mesh(unitBox, sc.metal); leg.scale.set(0.16, 0.5, 0.16); leg.position.set(sx * 3.4, 0.25, -0.1); g.add(leg); }
+      g.add(back, rim, face);
+      const c2 = cv.getContext('2d'), box = Math.round(RH * 0.39);
+      const draw = () => {
+        c2.fillStyle = '#060916'; c2.fillRect(0, 0, CW, CH);
+        rows.forEach((r, k) => {
+          const y = 14 + k * RH + RH / 2, text = String(r.text).slice(0, Math.round(r.shown));
+          if (r.out) { c2.fillStyle = 'rgba(255,255,255,0.05)'; c2.fillRect(X0 - 14, y - RH / 2 + 5, CW - X0 - 6, RH - 10); }
+          c2.textAlign = 'left'; c2.textBaseline = 'middle';
+          c2.font = '600 ' + TS + 'px ' + FONT; c2.fillStyle = r.out ? accent : '#8d97c9';
+          c2.fillText(track(String(r.tag || '').toUpperCase()), 22, y + 2);
+          c2.font = '500 ' + FS + 'px ' + MONO; c2.textAlign = 'center';
+          for (let j = 0; j < text.length; j++) {
+            const x = X0 + j * PITCH, wrong = !!r.marks && r.marks[j] === 1;
+            if (r.hl && j >= r.hl[0] && j < r.hl[1]) { c2.fillStyle = 'rgba(255,194,71,0.3)'; c2.fillRect(x, y - box, PITCH, box * 2); }
+            if (wrong) { c2.fillStyle = 'rgba(255,93,115,0.3)'; c2.fillRect(x, y - box, PITCH, box * 2); }
+            c2.fillStyle = wrong ? '#ff5d73' : r.out && r.marks ? '#5fe3a1' : '#eef1ff';
+            if (text[j] !== ' ') c2.fillText(text[j], x + PITCH / 2, y + 2);
+          }
+          if (r.out && r.shown < String(r.text).length) { c2.fillStyle = accent; c2.fillRect(X0 + text.length * PITCH + 3, y - box * 0.8, 4, box * 1.6); }      // the cursor
+        });
+        tex.needsUpdate = true;
+      };
+      draw();
+      piece.anchor.set(px, y0 + cy, pz); piece.top = y0 + cy + hgt / 2 + 0.3; piece.half = WID / 2 + 0.15; piece.front = 2; piece.side = -3.3;
+      piece.type = async (dur, alive, id, text, marks) => {
+        const r = rows.find(x => x.id === id);
+        if (!r) return;
+        r.text = String(text); r.marks = marks || []; r.shown = 0;
+        await tween(dur(Math.min(1.1, 0.2 + r.text.length * 0.03)), k => { if (alive()) { r.shown = k * r.text.length; draw(); } }, x => x);
+        r.shown = r.text.length;
+        draw();
+      };
+      piece.hl = (id, from, to) => { const r = rows.find(x => x.id === id); if (r) { r.hl = [from, to]; draw(); } };
+      break;
+    }
+  }
+  return piece;
+}
+// The camera stands as close as it can while everything on the stage stays in view. The stage is a different shape on
+// every screen (a tall column next to the editor, a low strip above it on a phone), so this is worked out, not guessed.
+function sceneFrame() {
+  const s = sc, high = Math.max(1, stage.clientHeight), aspect = stage.clientWidth / high, tv = Math.tan(T.MathUtils.degToRad(camera.fov / 2)), th = tv * aspect, se = Math.sin(s.el), ce = Math.cos(s.el);
+  const over = Math.max(0.4, Math.min(0.95, 1 - 2 * (inset.top + 6) / high)), under = Math.max(0.4, Math.min(0.95, 1 - 2 * (inset.bottom + 6) / high));        // how much of the view above and below its middle is free
+  const tries = [];
+  let least = Infinity;
+  for (let ty = -1.5; ty <= 4.51; ty += 0.15) {
+    let dist = 4.5;
+    for (const p of s.pts) {
+      const py = p[1] - ty, deep = -(py * se + p[2] * ce), up = py * ce - p[2] * se;        // how far into the view the point is, and how high in it
+      dist = Math.max(dist, p[0] / (0.94 * th) - deep, (up > 0 ? up / (over * tv) : -up / (under * tv)) - deep);
+    }
+    tries.push([ty, dist, dist + ty * se]);            // the last: how far the camera really is from the deck, which is what decides how large the scene looks
+    least = Math.min(least, dist + ty * se);
+  }
+  // Where the view is taller than the scene, many heights show it just as large. Of those, take the one that leaves as
+  // much room above the scene as below it.
+  let best = null;
+  for (const t of tries) {
+    if (t[2] > least * 1.012) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (const p of s.pts) { const py = p[1] - t[0], v = (py * ce - p[2] * se) / (tv * (t[1] - py * se - p[2] * ce)); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const off = Math.abs((over - hi) - (lo + under));
+    if (!best || off < best.off) best = { y: t[0], dist: t[1], off };
+  }
+  return best;
+}
+const reframe = () => { if (!sc || mode !== 'arena') return; const f = sceneFrame(); if (dataCam) { dataCam.y = f.y; dataCam.dist = f.dist; } else { aty = f.y; acamT.dist = f.dist; } };
+// The page tells how many pixels at the top and the bottom of the view its own labels cover, so that a scene is framed clear of them.
+W.setInsets = function (top, bottom) { if (inset.top === top && inset.bottom === bottom) return; inset.top = top; inset.bottom = bottom; reframe(); };
+// meta: { color, floor, boss, tests, perf: [bool], keep }
+W.showScene = function (stage, meta) {
+  const keep = !!meta.keep && !!sc && mode === 'arena';           // the same level again: the camera stays where it is
+  clearArena();
+  sceneGeos();
+  const col = lin(meta.color), theme = THEMES[meta.floor] || { gem: 'octa', prop: null }, w = stage.w, d = stage.d;
+  sc = { stage, col, w, d, el: stage.el || 0.6, map: new Map(), home: stage.pip.slice(), hover: 0.42 * PIP_SIZE + 0.03, pts: [],
+    metal: std(0x1c2658, { roughness: 0.4, metalness: 0.62 }), stepMat: std(0x151d48, { roughness: 0.42, metalness: 0.62 }) };
+  if (!stage.props.some(p => p.k === 'pad')) {                     // a bridge has two platforms and a drop between them instead of one deck
+    const slab = new T.Mesh(unitBox, sc.stepMat), lines = tileTex.clone(), rim = new T.LineSegments(unitEdge, new T.LineBasicMaterial({ color: col, toneMapped: false }));
+    lines.needsUpdate = true; lines.wrapS = lines.wrapT = T.RepeatWrapping; lines.repeat.set(Math.max(1, Math.round(w + 0.6)), Math.max(1, Math.round(d + 0.6)));
+    const top = new T.Mesh(new T.PlaneGeometry(w + 0.6, d + 0.6), std(0x070b1e, { emissive: col, emissiveMap: lines, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.55, envMapIntensity: 1.2 }));
+    slab.scale.set(w + 0.9, 0.5, d + 0.9); slab.position.y = -0.26; rim.scale.copy(slab.scale); rim.position.y = -0.26;
+    top.rotation.x = -Math.PI / 2;
+    arena.add(slab, top, rim);
+  }
+  const under = glow(meta.color, Math.max(w, d) * 2.2, 0.2);
+  under.position.y = -1.8;
+  arena.add(under);
+  for (const p of stage.props) { const piece = scenePiece(p); sc.map.set(p.id, piece); arena.add(piece.g); }
+  // the tests: one small crystal for each, in a row along the front edge like footlights
+  const count = meta.tests || 0, gap = Math.min(0.56, (w - 0.4) / Math.max(1, count)), fz = d / 2 + 0.72;
+  if (count) { const rail = new T.Mesh(unitBox, sc.stepMat); rail.scale.set(count * gap + 0.4, 0.3, 0.5); rail.position.set(0, -0.25, fz); arena.add(rail); }
+  for (let i = 0; i < count; i++) {
+    const slow = !!(meta.perf && meta.perf[i]), size = slow ? 0.66 : 0.5, x = (i - (count - 1) / 2) * gap;
+    const mat = std(0x0b1030, { emissive: CSTATE.idle, emissiveIntensity: 0.7, roughness: 0.1, metalness: 0.35, flatShading: true, envMapIntensity: 1.05 }), gem = new T.Mesh(gemGeo(theme.gem, size), mat), gl = glow(0xffffff, 1.3 * size, 0);
+    gem.position.set(x, 0.3, fz); gl.position.copy(gem.position);
+    arena.add(gem, gl);
+    if (slow) { const ring = new T.Mesh(new T.TorusGeometry(0.3, 0.014, 6, 24), basic(0xffb347, { transparent: true, opacity: 0.7 })); ring.position.copy(gem.position); arena.add(ring); gem.userData.ring = ring; }
+    crystals.push({ gem, mat, glow: gl, y: 0.3, k: 0.5, state: 'idle', spin: 0.6 + Math.random() * 0.4 });
+  }
+  if (meta.boss) {
+    lock = new T.Group();
+    const shellM = new T.Mesh(new T.IcosahedronGeometry(0.62, 0), std(0x1a2150, { roughness: 0.3, metalness: 0.7, flatShading: true, envMapIntensity: 1.3 }));
+    lock.add(shellM, new T.LineSegments(new T.EdgesGeometry(shellM.geometry), new T.LineBasicMaterial({ color: lin(0xff7a6b), toneMapped: false })), glow(0xff7a6b, 2.8, 0.35));
+    lock.position.set(w / 2 - 0.3, 2.7, -d / 2 - 0.2);
+    arena.add(lock);
+  }
+  beam = new T.Mesh(new T.CylinderGeometry(0.03, 0.03, 1, 6, 1, true), basic(0xffffff, { transparent: true, opacity: 0, blending: T.AdditiveBlending, depthWrite: false }));
+  arena.add(beam);
+  pip = makePip();
+  pip.scale.setScalar(PIP_SIZE);
+  pip.position.set(sc.home[0], sc.hover, sc.home[1]);
+  arena.add(pip);
+  board = { col, props: theme.prop ? addProps(theme.prop, col) : [] };
+  // what has to stay in view: the deck and the footlights, room for PIP to hop, and everything that stands taller
+  const reach = Math.max(2, stage.top || 0), xs = w / 2 + 0.45;
+  sc.pts.push([xs, -0.2, d / 2 + 1.05], [xs, 0.6, d / 2 + 0.95], [xs, reach, d / 2], [xs, reach, -d / 2], [xs, 0, -d / 2 - 0.45]);
+  sc.tall = reach;
+  for (const piece of sc.map.values()) { sc.pts.push([Math.abs(piece.anchor.x) + piece.half, piece.top, piece.anchor.z]); sc.tall = Math.max(sc.tall, piece.top); }
+  if (lock) sc.pts.push([w / 2 + 0.4, 3.4, lock.position.z]);
+  const f = sceneFrame();
+  acamT.az = Math.PI / 2; acamT.el = sc.el; acamT.dist = f.dist;
+  if (keep) { atarget.x = 0; atarget.z = 0; aty = f.y; } else { atarget.set(0, f.y, 0); openShot(); }
+  arenaSpan = Math.max(w, d) / 2 + 3;
+  tintT.copy(col);
+  lit(arena);
+};
+// Play the beats of a scene. opts: speed, instant (jump to how it ends), note(text, kind): a caption for the player.
+W.playScene = async function (beats, opts) {
+  opts = opts || {};
+  if (!sc || mode !== 'arena' || !pip) return true;
+  cancelAll();
+  const scene = sc, my = epoch, alive = () => my === epoch && sc === scene, fast = !!opts.instant, speed = Math.max(0.5, opts.speed || 1), dur = s => (fast ? 0 : s / speed), u = pip.userData;
+  const get = id => scene.map.get(id) || null;
+  const stand = to => {                                 // where PIP goes to work on a piece, or the place given
+    if (Array.isArray(to)) return new T.Vector3(to[0], scene.hover, to[1]);
+    const piece = get(to);
+    return piece ? new T.Vector3(piece.anchor.x + piece.side, scene.hover, piece.anchor.z + piece.front) : pip.position.clone();
+  };
+  const travel = (to, hop, secs) => {
+    const from = pip.position.clone(), arc = hop ? 0.5 : 0.1, lean = Math.max(-0.5, Math.min(0.5, (to.x - from.x) * 0.22));
+    if (hop && !fast) sfx('step');
+    return tween(dur(secs || (hop ? 0.26 : 0.34)), k => {
+      if (!alive()) return;
+      pip.position.lerpVectors(from, to, k); pip.position.y += Math.sin(k * Math.PI) * arc;
+      u.tilt.rotation.x = Math.sin(k * Math.PI) * 0.16; pip.rotation.y = Math.sin(k * Math.PI) * lean;
+    });
+  };
+  const pulse = g => { if (!fast) tween(dur(0.22), k => { if (alive()) g.scale.setScalar(1 + 0.2 * (1 - k)); }, easeOut); };
+  async function play(b) {
+    const piece = b.id !== undefined && !Array.isArray(b.id) ? get(b.id) : null;
+    switch (b.a) {
+      case 'go': { const to = stand(b.to); to.y = scene.hover + (b.y || 0); await travel(to, false, b.t); break; }
+      case 'hop': { const to = stand(b.to); to.y = scene.hover + (b.y || 0); await travel(to, true, b.t); break; }
+      case 'zap': if (piece && !fast) { fireBeam(piece.anchor); burst(piece.anchor, scene.col, 6, 1.4, 0.4); sfx('trace'); await sleep(dur(0.1)); } break;
+      case 'mark': {
+        const ids = Array.isArray(b.id) ? b.id : [b.id];
+        for (const id of ids) { const m = get(id); if (m) m.mark(b.s); }
+        if (!fast && (b.s === 'ok' || b.s === 'bad')) { sfx(b.s === 'ok' ? 'tick' : 'buzz'); await sleep(dur(0.07)); }
+        else if (!fast && (b.s === 'on' || b.s === 'pick')) sfx('pick');
+        break;
+      }
+      case 'new': {
+        if (scene.map.has(b.p.id)) break;
+        const made = scenePiece(b.p), g = made.g, to = g.position.clone(), from = b.from === 'pip' ? new T.Vector3(pip.position.x, pip.position.y + 0.4, pip.position.z) : to;
+        scene.map.set(b.p.id, made);
+        arena.add(g);
+        lit(g);
+        await tween(dur(b.from === 'pip' ? 0.2 : 0.13), k => { if (!alive()) return; g.scale.setScalar(0.15 + 0.85 * k); g.position.lerpVectors(from, to, k); }, easeOut);
+        g.scale.setScalar(1); g.position.copy(to);
+        if (!fast && b.from === 'pip') sfx('place');
+        break;
+      }
+      case 'txt': if (piece) { piece.text(b.t, b.tone); pulse(piece.g); } break;
+      case 'type': if (piece && piece.type) { if (!fast) sfx('type'); await piece.type(dur, alive, b.row, b.text, b.marks); } break;
+      case 'hl': if (piece && piece.hl) piece.hl(b.row, b.from, b.to); break;
+      case 'open': if (piece && piece.open) { if (!fast) { sfx('gate'); burst(piece.anchor, SHADE.ok, 30, 3.5, 1.5); } await piece.open(dur, alive); } break;
+      case 'jam': if (piece && piece.jam) { if (!fast) { sfx('jam'); burst(piece.anchor, 0xff6b7d, 18, 2.5, 1); } await piece.jam(dur, alive); } break;
+      case 'extend': if (piece && piece.extend) { if (!fast) sfx('plank'); await piece.extend(dur, alive, !!b.ghost); } break;
+      case 'snap': if (piece && piece.snap) await piece.snap(dur, alive, b.at, fast); break;
+      case 'fill': if (piece && piece.fill) { if (!fast) sfx('pour'); await piece.fill(dur, alive, b.to); } break;
+      case 'ring': if (piece && piece.ring) piece.ring(b.at, b.t); break;
+      case 'spin': if (piece && piece.spin) await piece.spin(dur, alive, fast); break;
+      case 'note': if (b.t) { if (opts.note) opts.note(b.t, b.s); await sleep(dur(0.3 + Math.min(0.7, b.t.length * 0.01))); } break;
+      case 'wait': await sleep(dur(b.t || 0.2)); break;
+      case 'all': await Promise.all(b.b.map(play)); break;
+      case 'seq': for (const x of b.b) { if (!alive()) return; await play(x); } break;
+      case 'pip':
+        if (b.do === 'fall') {
+          u.shadow.visible = false;
+          if (!fast) sfx('fall');
+          await tween(dur(0.6), k => { if (alive()) { pip.position.y = scene.hover - 7 * k; u.tilt.rotation.x = k * 2.2; pip.scale.setScalar(PIP_SIZE * (1 - 0.5 * k)); } }, easeIn);
+          if (!alive()) return;
+          pip.position.set(scene.home[0], scene.hover, scene.home[1]); pip.scale.setScalar(PIP_SIZE); u.tilt.rotation.set(0, 0, 0); u.shadow.visible = true;
+          setMood(pip, 'sad');
+        } else if (b.do === 'no') await tween(dur(0.45), k => { if (alive()) u.tilt.rotation.y = Math.sin(k * 12) * 0.45 * (1 - k); }, x => x);
+        else setMood(pip, 'sad');
+        break;
+      case 'end':
+        setMood(pip, b.ok ? 'happy' : 'sad');
+        if (fast) break;
+        if (b.ok) {
+          sfx('pass');
+          burst(new T.Vector3(pip.position.x, 1.6, pip.position.z), 0xffc247, 46, 4.5, 3);
+          burst(new T.Vector3(0, 2, 0), scene.col, 50, 6, 2);
+          if (!calm) tween(1.1, k => { if (alive()) acamT.az = Math.PI / 2 + Math.sin(k * Math.PI) * 0.13; }).then(() => { if (alive()) acamT.az = Math.PI / 2; });
+          const y0 = pip.position.y, h0 = pip.rotation.y;
+          await tween(dur(0.55), k => { if (alive()) { pip.position.y = y0 + Math.sin(k * Math.PI) * 0.5; pip.rotation.y = h0 + k * TAU; } });
+          if (alive()) pip.rotation.y = h0;
+        } else {
+          sfx('fail');
+          await tween(dur(0.5), k => { if (alive()) u.tilt.rotation.y = Math.sin(k * 14) * 0.4 * (1 - k); }, x => x);
+        }
+        break;
+    }
+  }
+  for (const b of beats) { if (!alive()) return false; await play(b); }
+  return alive();
+};
+// After a scene has played, the footlights give the whole verdict: one for each test.
+W.lightTests = async function (states, instant) {
+  const my = epoch, won = states.length > 0 && states.every(s => s === 'pass');
+  for (let i = 0; i < states.length; i++) {
+    if (!crystals[i]) continue;
+    setCrystal(i, states[i]);
+    if (instant || my !== epoch) continue;
+    if (states[i] === 'pass') burst(crystals[i].gem.position, board.col, 5, 1.4, 0.6);
+    sfx('pick');
+    await sleep(0.045);
+  }
+  if (lock && won) { if (!instant && my === epoch) { burst(lock.position, 0xff7a6b, 70, 6, 2); sfx('boss'); } lock.visible = false; }
+  if (pip && states.length && !won) setMood(pip, 'sad');
+  return my === epoch;
 };
 
 W.stop = cancelAll;
@@ -998,6 +1509,7 @@ W.resize = function () {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   camT.dist = hubDist();
+  reframe();                                        // a scene is framed to fit the view it has
   sizeBloom(w, h);
 };
 let last = 0, lastTick = 0;
@@ -1026,7 +1538,7 @@ function frame(now, fromTimer) {
     if (board && board.exit) { board.exit.ring.scale.setScalar(1 + 0.08 * Math.sin(time * 4)); board.exit.shaft.material.opacity = 0.16 + 0.07 * Math.sin(time * 2.2); }
     for (const c of crystals) {
       c.gem.rotation.y += dt * c.spin * (c.state === 'pass' ? 2.4 : c.state === 'fail' ? 0.1 : 1);
-      const ty = c.y + (c.state === 'pass' ? 0.3 : c.state === 'fail' ? -0.22 : 0);
+      const ty = c.y + (c.state === 'pass' ? 0.3 : c.state === 'fail' ? -0.22 : 0) * (c.k || 1);
       c.gem.position.y += (ty + (calm ? 0 : Math.sin(time * 2 + c.spin * 9) * 0.05) - c.gem.position.y) * Math.min(1, dt * 8);
       c.glow.position.copy(c.gem.position);
       if (c.gem.userData.ring) { c.gem.userData.ring.position.copy(c.gem.position); c.gem.userData.ring.rotation.x += dt * 1.5; c.gem.userData.ring.rotation.y += dt; }

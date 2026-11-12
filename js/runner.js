@@ -99,7 +99,9 @@ function runTests(level, code, opts) {
     if (!r.ok) { tr.error = r.error; tr.errorLine = userLine(r.error); tr.slow = r.error.abort === 'steps'; return; }
     const want = s.eval(t.expect, base, TEST_STEPS);
     if (!want.ok) { tr.error = want.error; return; }
-    tr.got = clip(s.repr(r.value), 400);
+    const text = s.repr(r.value);
+    tr.got = clip(text, 400);
+    if (text.length <= 6000) tr.full = text;       // the whole value, for the scene that acts it out
     tr.ok = s.equal(r.value, want.value);
   });
   res.ok = res.tests.every(t => t.ok);

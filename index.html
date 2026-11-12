@@ -150,6 +150,14 @@ p { margin: 0; }
 /* stage overlays inside a level */
 #stage-note { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3; font: 600 14px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; background: #0a0f20f2; border: 1px solid var(--line-2); border-radius: 2px; padding: 9px 13px; }
 #robot-ctl { position: absolute; left: var(--gl); bottom: max(14px, env(safe-area-inset-bottom, 0px)); z-index: 3; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* the caption under the scene of a code level: the call that is on stage, and what is happening to it */
+#scene-note { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3; box-sizing: border-box; width: min(640px, calc(100% - var(--gl) - var(--gr))); padding: 9px 14px 10px; font: 500 15px/1.4 var(--body); color: var(--ink); background: #0a0f20f2; border: 1px solid var(--line-2); border-left: 3px solid var(--mute); border-radius: 3px; pointer-events: none; }
+#scene-note.ok { border-left-color: var(--ok); }
+#scene-note.bad { border-left-color: var(--fail); }
+#scene-call { display: block; margin-bottom: 3px; font: 500 12.5px/1.35 var(--mono); color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#scene-call:empty { display: none; }
+.mode-hub #scene-note, #app:has(#tab-code.tracing) #scene-note { display: none; }
+@media (min-width: 901px) { body:has(#app.scene) #toasts { bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 104px); } }       /* tips appear above the caption, not on it */
 .segs { display: inline-flex; border: 1px solid var(--line-2); border-radius: 3px; overflow: hidden; }
 .seg { font: 600 14px/1 var(--display); letter-spacing: .06em; min-height: 36px; padding: 0 13px; background: #0a0f20f2; border: 0; border-right: 1px solid var(--line-2); cursor: pointer; }
 .seg:last-child { border-right: 0; }
@@ -426,6 +434,9 @@ p { margin: 0; }
 @media (max-width: 900px) {
   #app.mode-level { grid-template-columns: minmax(0, 1fr); grid-template-rows: 26% minmax(0, 1fr); }
   #app.mode-level.watch { grid-template-rows: 44% minmax(0, 1fr); }             /* a drone run in progress: show more of the deck */
+  #app.mode-level.scene { grid-template-rows: 38% minmax(0, 1fr); }             /* a code level with a scene: room for the scene and its caption */
+  #app.scene #stage-note, #scene-call { display: none; }                        /* the scene itself shows what went in */
+  #scene-note { bottom: 6px; padding: 6px 10px 7px; font-size: 13.5px; line-height: 1.35; }
   #app.mode-level:has(#tab-code.tracing) { grid-template-rows: 10% minmax(0, 1fr); }
   #panel { border-left: 0; border-top: 1px solid var(--line-2); box-shadow: none; }
   .p-head { gap: 10px; padding: 10px var(--gr) 8px var(--gl); }
@@ -466,7 +477,7 @@ p { margin: 0; }
 @media (max-width: 560px) { .tools #btn-lab { display: none; } }          /* the Scratchpad is in the menu on a phone */
 /* a phone on its side: world and workbench side by side again */
 @media (max-width: 900px) and (orientation: landscape) {
-  #app.mode-level, #app.mode-level.watch, #app.mode-level:has(#tab-code.tracing) { grid-template-columns: 38% minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  #app.mode-level, #app.mode-level.watch, #app.mode-level.scene, #app.mode-level:has(#tab-code.tracing) { grid-template-columns: 38% minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
   #panel { border-top: 0; border-left: 1px solid var(--line-2); }
   #modal { place-items: center; padding: 12px var(--gr) 12px var(--gl); }
   #modal .modal-card { width: min(580px, 100%); max-height: 100%; border-radius: 3px; border-width: 1px; }
@@ -617,7 +628,7 @@ button.tc-head:hover::after { color: var(--accent); }
 /* comfort settings from the Menu: larger text and more contrast. The reading areas are enlarged as a whole; the editor
    gets its own sizes because it measures its letters. */
 .ts-1 { --tz: 1.12; } .ts-2 { --tz: 1.25; }
-:is(.ts-1, .ts-2) :is(#tab-lesson, #tab-tools, #tab-solution, #task-body, #cmds, #ed-note, #feedback, #modal-body, #pip-say, #toasts) { zoom: var(--tz); }
+:is(.ts-1, .ts-2) :is(#tab-lesson, #tab-tools, #tab-solution, #task-body, #cmds, #ed-note, #feedback, #modal-body, #pip-say, #scene-text, #toasts) { zoom: var(--tz); }
 .ts-1 .ed { --lh: 26px; font-size: 16.5px; } .ts-2 .ed { --lh: 29px; font-size: 18.5px; }
 .ts-1 #coach p { font-size: 17px; } .ts-2 #coach p { font-size: 19px; }
 @media (pointer: coarse) { .ts-1 .ed { --lh: 27px; font-size: 17.5px; } .ts-2 .ed { --lh: 30px; font-size: 19px; } }
@@ -664,6 +675,7 @@ button.tc-head:hover::after { color: var(--accent); }
     <div id="nogl" hidden><p>The 3D view could not start in this browser. Every level still works: pick one below and write code.</p></div>
     <div id="stage-note" hidden></div>
     <div id="pip-say" role="status" aria-live="polite" hidden></div>
+    <div id="scene-note" hidden><code id="scene-call"></code><span id="scene-text" role="status" aria-live="polite"></span></div>
     <div id="robot-ctl" hidden>
       <span class="segs" role="group" aria-label="Replay speed">
         <button type="button" class="seg on" data-speed="1">1×</button><button type="button" class="seg" data-speed="2">2×</button><button type="button" class="seg" data-speed="4">4×</button>
@@ -757,7 +769,7 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/minipy-lib.js?v=023ffa9e"></script>
 <script src="js/minipy-mods.js?v=40a94720"></script>
 <script src="js/prelude.js?v=779f9a85"></script>
-<script src="js/runner.js?v=ed16c564"></script>
+<script src="js/runner.js?v=9a02f535"></script>
 <script src="js/craft.js?v=146d8100"></script>
 <script src="js/bughunt.js?v=6c055900"></script>
 <script src="js/levels-z1.js?v=f2c34aa6"></script>
@@ -774,9 +786,10 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/curriculum.js?v=9c74b978"></script>
 <script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
-<script src="js/world.js?v=485a6e94"></script>
+<script src="js/scenes.js?v=a55b244b"></script>
+<script src="js/world.js?v=358913c5"></script>
 <script src="js/score.js?v=088221a0"></script>
-<script src="js/game.js?v=309b913b"></script>
+<script src="js/game.js?v=ee7fbef7"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", function () {
   navigator.serviceWorker.register("sw.js").catch(function () { /* no offline copy here: the game works without one */ });

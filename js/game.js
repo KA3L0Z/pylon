@@ -13,7 +13,7 @@ const Runner = window.PylonRunner, RealWorld = window.PylonWorld || { ok: false 
 const World = new Proxy({}, { get: (_, k) => (RealWorld.ok && typeof RealWorld[k] === 'function') ? RealWorld[k] : (/^play/.test(k) ? () => Promise.resolve(true) : () => undefined) });
 
 // The floors and the order of the levels come from js/curriculum.js; the level files only describe the levels.
-const Curriculum = window.PylonCurriculum, Craft = window.PylonCraft || null;
+const Curriculum = window.PylonCurriculum, Craft = window.PylonCraft || null, Scenes = window.PylonScenes || null;
 const ZONES = Curriculum.FLOORS.map((f, k) => ({ n: k + 1, name: f.name, color: f.color, title: f.title, blurb: f.blurb }));
 const LAB = { n: 0, name: 'Scratchpad', color: '#2ee6c8' };
 const RANKS = ['Amateur'].concat(ZONES.map(z => z.title));
@@ -248,6 +248,14 @@ const Sfx = (() => {
     pick: () => tone(980, 0, 0.03, 'triangle', 0.14),
     buzz: () => tone(150, 0, 0.16, 'sawtooth', 0.3, 110),
     crash: () => { tone(180, 0, 0.22, 'sawtooth', 0.45, 60); tone(90, 0.02, 0.25, 'square', 0.25, 50); noise(0, 0.25, 0.35, 1800, 200); },
+    // what a scene of a code level sounds like: a crate set down, a tube filling, letters on the wall, the gate, the bridge
+    place: () => { tone(210, 0, 0.06, 'triangle', 0.24, 150); noise(0, 0.04, 0.05, 1400, 600); },
+    pour: () => { tone(240, 0, 0.62, 'sine', 0.2, 640); noise(0, 0.6, 0.06, 500, 1900); },
+    type: () => { for (let k = 0; k < 6; k++) tone(1150 + (k % 3) * 90, k * 0.045, 0.022, 'square', 0.05); },
+    gate: () => { noise(0, 0.42, 0.2, 200, 1700); tone(196, 0, 0.32, 'sine', 0.28, 392); },
+    jam: () => { tone(120, 0, 0.12, 'square', 0.26, 92); tone(120, 0.15, 0.15, 'square', 0.26, 80); },
+    plank: () => seq([330, 370, 415, 466], 0.05, 0.06, 'triangle', 0.15),
+    fall: () => tone(880, 0, 0.5, 'sine', 0.2, 130),
     fail: () => { tone(300, 0, 0.14, 'triangle', 0.4, 220); tone(220, 0.13, 0.22, 'triangle', 0.4, 160); },
     hint: () => { tone(587, 0, 0.1, 'sine', 0.3); tone(880, 0.09, 0.16, 'sine', 0.22); },
     mentor: () => seq([523, 659, 880], 0.08, 0.16, 'sine', 0.22),
@@ -801,10 +809,37 @@ function addExamples(root, lv) {
     pre.after(box);
   });
 }
-let shownMap = 0;
+let shownMap = 0, staged = null;                     // staged: the scene a code level is showing (js/scenes.js), or null
+const sceneMeta = lv => { const z = zoneOf(lv); return { color: z.color, floor: z.n, boss: !!lv.boss, tests: lv.tests.length, perf: lv.tests.map(t => !!t.perf) }; };
+// The caption under a scene: the call that is on stage, and a line about what is happening there.
+function caption(text, kind) {
+  const el = $('scene-note'), tag = $('stage-note');
+  $('scene-text').textContent = text || '';
+  el.className = kind || '';
+  el.hidden = !staged;
+  World.setInsets(tag.offsetHeight ? tag.offsetHeight + 24 : 8, el.hidden ? 20 : el.offsetHeight + 18);       // the scene is framed clear of both labels
+}
+// Puts test i of a code level on stage. keep: the level is already showing, so the camera stays where it is.
+function stageScene(lv, i, keep) {
+  staged = Scenes && RealWorld.ok && lv.kind === 'code' ? Scenes.plan(lv, i) : null;
+  $('app').classList.toggle('scene', !!staged);
+  if (!staged) return null;
+  const t = lv.tests[i], n = lv.tests.length;
+  $('stage-note').hidden = n < 2;
+  $('stage-note').textContent = 'Test ' + (i + 1) + ' of ' + n;
+  $('scene-call').textContent = t.stdout !== undefined ? (t.stdin ? 'typed in: ' + String(t.stdin).replace(/\n$/, '').split('\n').join(' ⏎ ') : 'your whole program') : String(t.show || t.call || '');
+  caption(staged.stage.note, '');
+  World.showScene(staged.stage, Object.assign(sceneMeta(lv), { keep: !!keep }));
+  return staged;
+}
 function buildArena() {
   const z = zoneOf(cur);
   shownMap = 0;
+  if (cur.kind === 'code' && stageScene(cur, Scenes ? Scenes.choose(cur, null) : 0)) return;
+  staged = null;
+  $('app').classList.remove('scene');
+  $('scene-note').hidden = true;
+  World.setInsets(50, 20);
   if (cur.kind === 'robot') World.showRobot(Runner.parseMap(cur.maps[0]), z.color);
   else World.showTests(cur.tests.length, cur.tests.map(t => !!t.perf), z.color, !!cur.boss, z.n);
 }
@@ -890,6 +925,8 @@ function closeLevel(celebrate) {
   play = { mode: 'normal' };
   $('robot-ctl').hidden = true;
   $('stage-note').hidden = true;
+  $('scene-note').hidden = true;
+  staged = null;
   $('iv-bar').hidden = true;
   $('app').classList.remove('watch');
   if (editor) editor.closeComplete();
@@ -1288,6 +1325,24 @@ async function run() {
     World.mood(res.ok ? 'happy' : 'sad');
     Sfx.play(res.ok ? 'tick' : 'fail');
     bump('lab');
+  } else if (staged) {
+    // The scene acts out one test: the first that fails, or the one that was standing there. Then the footlights give
+    // the verdict on all of them.
+    const states = res.error ? [] : res.tests.map(t => t.ok ? 'pass' : t.slow ? 'slow' : 'fail');
+    const i = states.length ? Scenes.choose(lv, res.tests) : staged.test, result = states.length ? res.tests[i] : { ok: false, error: res.error, errorLine: res.errorLine };
+    let told = null;
+    const note = (t, s) => { told = s; caption(t, s); };
+    const beats = Scenes.act(stageScene(lv, i, true), result);
+    let shown = false;
+    if (S.replay !== false && how !== 'interview') shown = await World.playScene(beats, { speed: Math.min(2, S.speed || 1), note });
+    if (cur === lv && !shown) { stageScene(lv, i, true); told = null; await World.playScene(beats, { instant: true, note }); }       // skipped, or switched off: how it ends, without the play
+    if (cur === lv) {
+      if (states.length) await World.lightTests(states, !shown);
+      const n = states.length;
+      if (res.ok) { if (told !== 'ok') caption(n === 1 ? 'That is right.' : 'That is right, and so are the other ' + (n - 1) + ' tests.', 'ok'); }
+      else if (result.ok) { World.mood('sad'); caption(states.indexOf('slow') >= 0 ? 'The answers are right, but the code is too slow for the speed test.' : 'This test passes. Another one does not: the list under the editor shows which.', 'bad'); }
+      else if (told !== 'bad') caption(n ? 'Test ' + (i + 1) + ' does not pass. The list under the editor shows what came back.' : 'Your code stopped before the tests could run.', 'bad');
+    }
   } else {
     const states = res.error ? [] : res.tests.map(t => t.ok ? 'pass' : t.slow ? 'slow' : 'fail');
     if (states.length) await replayRun(lv, code);
@@ -1728,7 +1783,7 @@ function greet(lv) {
 function consol(lv, res, fails) {
   const L = Story.LINES.fail, slow = (res.tests || []).some(t => t.slow), err = res.error || ((res.tests || []).find(t => t.error) || {}).error;
   const key = fails >= 3 && fails % 3 === 0 ? 'again' : slow ? 'slow' : err ? (L[err.type] ? err.type : 'any') : 'wrong';
-  say(pickLine(L[key], fails + lv.order));
+  say(pickLine(L[key], fails + lv.order), staged && window.innerWidth <= 900 ? 3200 : 0);       // on a small screen PIP's words lie over the scene, so they do not stay long
 }
 const pipLine = text => (text ? '<p class="pip-line"><b>PIP</b> ' + esc(text) + '</p>' : '');
 function logHtml(k, color) {
@@ -1945,11 +2000,12 @@ const TOURS = {
     { at: 'tab-btn-lesson', tab: 'lesson', text: 'Start here. Every level opens with a short lesson on the one new idea it needs. Read it, then open Code.' },
   ],
   2: [
-    { at: 'tab-btn-lesson', text: 'From here on you write real Python, and the lesson comes one level early: this tab holds the briefing for the next level.' },
+    { at: 'stage', text: 'From here on every level has a scene of its own, built from one of its tests. When you run your code, PIP acts out what it returned: a right answer opens the gate or holds the bridge, a wrong one goes visibly wrong.' },
+    { at: 'tab-btn-lesson', text: 'You now write real Python, and the lesson comes one level early: this tab holds the briefing for the next level.' },
     { at: 'tab-btn-tools', text: 'Tools holds every function and method you have been shown so far, as cards you can search. A level never says which ones it needs.' },
     { at: 'editor', tab: 'code', text: 'Write your answer here. Suggestions appear as you type, each with a reminder of what it does.' },
     { at: 'btn-trace', tab: 'code', text: 'Step through runs your code one line at a time and draws your lists and dictionaries in the arena. It is the fastest way to find a bug.' },
-    { at: 'btn-run', tab: 'code', text: 'Run checks your code against the tests. A passing answer can also earn four craft marks for being short, clear and tidy.' },
+    { at: 'btn-run', tab: 'code', text: 'Run checks your code against every test and plays one of them in the scene. A passing answer can also earn four craft marks for being short, clear and tidy.' },
   ],
 };
 let tourForce = false;
@@ -2034,7 +2090,7 @@ function showMenu() {
     '<h3>Play</h3><div class="rows">' +
     '<div class="row"><span>Graphics<small>Auto picks for your device and steps down if the picture stutters' + (q.now ? '. Now: ' + q.now : '') + '.</small></span><span class="segs">' + ['auto', 'high', 'medium', 'low'].map(v => seg('gfx', v, v[0].toUpperCase() + v.slice(1), S.gfx === v)).join('') + '</span></div>' +
     '<label class="row" for="opt-ac"><span>Suggestions while typing<small>Names, methods and whole lines, each with a reminder of what it does.</small></span><input type="checkbox" id="opt-ac"' + (S.ac ? ' checked' : '') + '></label>' +
-    '<label class="row" for="opt-replay"><span>Replay each run in the arena<small>Before the verdict, the first test is played back on your data: lists as crates, linked lists as chains.</small></span><input type="checkbox" id="opt-replay"' + (S.replay !== false ? ' checked' : '') + '></label>' +
+    '<label class="row" for="opt-replay"><span>Play each run in the arena<small>When you press Run, PIP acts out what your code returned on one of the tests. Switched off, the arena shows how it ended straight away.</small></span><input type="checkbox" id="opt-replay"' + (S.replay !== false ? ' checked' : '') + '></label>' +
     '<div class="row"><span>Drone replay speed</span><span class="segs">' + [1, 2, 4].map(v => seg('speed', v, v + '×', S.speed === v)).join('') + '</span></div>' +
     '<label class="row" for="opt-unlock"><span>Unlock every level<small>For people who already know the basics and want to jump ahead.</small></span><input type="checkbox" id="opt-unlock"' + (S.unlockAll ? ' checked' : '') + '></label>' +
     '<label class="row" for="opt-pip"><span>PIP talks<small>A line from the drone when a level opens and when a run fails.</small></span><input type="checkbox" id="opt-pip"' + (S.pipTalk !== false ? ' checked' : '') + '></label>' +

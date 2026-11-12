@@ -1,5 +1,5 @@
 // A real browser plays the first minutes of Pylon, the way a new player would, and fails loudly if anything breaks:
-// the intro, the first-time tour, a drone level, a code level, a failing run, the step-by-step view, the bug hunt,
+// the intro, the first-time tour, a drone level, a code level and its scene, a failing run, the step-by-step view, the bug hunt,
 // the save code, the comfort settings, the score that follows the floor and, on the built site, starting again with
 // the network switched off. It also renders the music of several floors without playing it and measures the result.
 //
@@ -57,6 +57,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await until(() => /Solved|Not yet|Done|Error/.test(document.getElementById('run-status').textContent) && !document.getElementById('btn-run').classList.contains('busy'), null, 40000);
     return page.evaluate(() => document.getElementById('run-status').textContent);      // the text as written, not as the stylesheet capitalises it
   };
+  // The same, but the play in the scene is watched to its end.
+  const watch = async () => {
+    await page.evaluate(() => { document.getElementById('run-status').textContent = ''; });
+    await click('#btn-run');
+    await until(() => /Solved|Not yet/.test(document.getElementById('run-status').textContent) && !document.getElementById('btn-run').classList.contains('busy'), null, 40000);
+    return page.evaluate(() => document.getElementById('run-status').textContent);
+  };
+  // What the caption under the scene of a code level says, and whether it is marked as right or wrong.
+  const caption = () => page.evaluate(() => { const n = document.getElementById('scene-note'); return { on: document.getElementById('app').classList.contains('scene') && !n.hidden, kind: n.className, text: document.getElementById('scene-text').textContent }; });
   const expect = (ok, what) => { if (!ok) throw new Error(what); };
   const openLevel = async id => {                  // through the Codex, from the tower
     await click('#btn-menu'); await seen('#btn-codex2');
@@ -113,7 +122,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const code = levels.filter(l => l.kind === 'code');
     await openLevel(code[0].id);
     await skipTour(true);
+    if (world) { const c = await caption(); expect(c.on && c.text.length > 20, 'the first code level opened without a scene and its caption'); }
     expect(await run() === 'Not yet', 'the starting code of a code level passed its tests');
+    if (world) expect((await caption()).kind === 'bad', 'after a failing run the caption of the scene is not marked as wrong');
     await until(() => document.documentElement.dataset.music === 'score: Logic Gardens', null, 15000).catch(() => { throw new Error('the score did not move to the theme of floor 2'); });
     await setCode(code[0].solution);
     expect(await run() === 'Solved', 'the model solution of ' + code[0].id + ' did not pass');
@@ -128,12 +139,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await setCode(target.solution.replace(' + ', ' - '));
     expect(await run() === 'Not yet', 'a wrong answer was accepted');
     expect(/of \d+ tests passed/i.test(await text('#results')), 'the failing tests are not listed');
+    if (world) { const c = await caption(); expect(c.kind === 'bad' && c.text.length > 10, 'the scene says nothing about the wrong answer'); }
     await click('#btn-trace');
     await seen('#trace');
     expect(/\d+\s*\/\s*\d+/.test(await text('#tr-pos')), 'the step-by-step view shows no step counter');
     await click('#tr-close');
     await setCode(target.solution);
-    expect(await run() === 'Solved', 'the model solution of ' + target.id + ' did not pass');
+    expect(await watch() === 'Solved', 'the model solution of ' + target.id + ' did not pass');      // this play is watched to its end, not skipped
+    if (world) { const c = await caption(); expect(c.kind === 'ok' && /slot/.test(c.text), 'the scene did not end on a caption for the right answer (it says: "' + c.text + '")'); }
     await seen('#modal-body .done');
     await closeModal();
     expect(/craft/i.test(await text('#results')), 'no craft marks under a passing answer');

@@ -6,7 +6,7 @@
 
 Pylon is a free browser game that teaches Python, from the first function call to classic interview problems. You are the new engineer at a signal tower that has been dark for years. Each platform on the tower is a problem to solve with real code, and each floor you bring back online is a promotion: Trainee, Intern, Technician, Junior Engineer, Associate Engineer, Engineer, Senior Engineer, Staff Engineer, Principal Engineer.
 
-![A level with the step-by-step view open: a linked list drawn while it is being reversed](docs/level.jpg)
+![Two Sum after a right answer: PIP has picked the two cells, their sum is on the gate, and the gate is open](docs/scene.jpg)
 
 ## What is in it
 
@@ -16,8 +16,8 @@ Pylon is a free browser game that teaches Python, from the first function call t
 - **Craft marks.** A passing answer is also read for how it is written. Four marks, each worth extra XP: concise, clear names, Pythonic, tidy. The notes say which line to change and why.
 - **Real Python, inside the page.** Your code runs on MiniPy, an interpreter for a subset of Python written for this game. Your code never leaves the browser.
 - **Input, files and regular expressions.** `input()` reads the lines a test hands the program, or the ones you type into the Scratchpad's Input box. `open()` works on files that live in memory, and the `re` module is there for patterns.
-- **Step through, with a picture of your data.** Replay any test one line at a time. Lists are drawn as rows of cells with the index variables pointing into them, dictionaries as pairs, linked lists as chains of nodes, and whatever changed is lit.
-- **Your data in the 3D arena.** The same picture stands in the arena as crates: a list is a row of them, a grid a wall, a linked list a chain of spheres, and the drone fires at the crate that just changed. Every run is played back there for a couple of seconds before the verdict.
+- **Every code level has a scene, and your code drives it.** One of the level's tests stands in the arena: power cells in front of a gate, a bridge with a plank for each bracket, a bar for each day's price, a grid of powered tiles, a chain, a tree, a wall for what a program prints. When you run your code, PIP acts out what it returned. The right two cells open the gate and the wrong two jam it. Answer `True` where the answer is `False` and the bridge gives way under PIP. There are ten kinds of scene, and two levels in a row never use the same one. A caption under the scene says what went wrong in that test's own terms, and a row of footlights gives the verdict on every test.
+- **Step through, with a picture of your data.** Replay any test one line at a time. Lists are drawn as rows of cells with the index variables pointing into them, dictionaries as pairs, linked lists as chains of nodes, and whatever changed is lit. In the 3D view the same picture floats above the scene as crates.
 - **A story.** The last chief engineer left one log entry on every floor, about the habit that floor teaches and why the tower went dark. An entry is recovered when its floor comes back online, and the summit has an ending. PIP, the drone, comments along the way, and every rank unlocks a new paint for it. Each floor's arena has a look of its own.
 - **An editor that helps.** Suggestions while you type, each with a one-line reminder of what the function or method does, and syntax problems flagged before you run.
 - **Speed tests.** Some tests count the steps your code takes, so a slow algorithm fails even when its answers are right.
@@ -30,6 +30,10 @@ Pylon is a free browser game that teaches Python, from the first function call t
 - **Scratchpad, hints, model solutions, 23 badges and a daily streak.**
 
 ![The tower](docs/tower.jpg)
+
+The step-by-step view on the same level. The list and the dictionary are drawn under the editor and stand above the scene:
+
+![A level with the step-by-step view open: the list and the dictionary of Two Sum drawn while the code runs](docs/level.jpg)
 
 A briefing with its reference cards, and the craft marks under a passing answer:
 
@@ -94,7 +98,8 @@ Then open http://localhost:8000/.
 | `js/story.js` | The tower log, the ending, and everything PIP says |
 | `js/complete.js` | What the editor suggests at the caret, and the one-line reminders |
 | `js/editor.js` | The code editor |
-| `js/world.js` | The 3D tower and arenas (three.js): image-based reflections, soft shadows, bloom, filmic tone mapping, and the player's data as crates |
+| `js/scenes.js` | The scenes of the code levels, as plain logic with no graphics in it: what stands on the stage for a test, and the beats to play for what the code returned |
+| `js/world.js` | The 3D tower and arenas (three.js): image-based reflections, soft shadows, bloom, filmic tone mapping, the pieces and beats of a scene, and the player's data as crates |
 | `js/score.js` | The score: themes, harmony, the instruments (all synthesized with Web Audio, no samples) and the mix that follows the game |
 | `js/game.js` | Progress, interface, briefings, Toolbox, step-by-step view, reviews, the bug hunt, interviews, the tour, comfort settings, the save code, badges, sound effects |
 | `sw.js`, `manifest.webmanifest`, `icons/` | The offline copy and what a browser needs to install the site as an app |
@@ -126,10 +131,13 @@ The icons are drawn by `node tools/make_icons.js`, with no image library.
     node tools/run_conf.js            # 80 small programs: MiniPy's output against CPython's
     node tools/check_curriculum.js    # the course as a whole, in the order the player meets it
     node tools/check_bughunt.js       # a bug can be planted in nearly every code level, and the tests catch it
+    node tools/check_scenes.js        # every code level has a scene: right answers play to a good end, wrong ones do not
 
 `check_curriculum.js` enforces the teaching rules. Every function, method and piece of syntax a model solution uses must have a reference card on that level or an earlier one. Every card example and lesson example (301 of them) must print the same thing in MiniPy and in CPython. Every model solution must earn all four craft marks, and a set of deliberately sloppy snippets must lose the right ones.
 
 `check_bughunt.js` tries up to ten planted bugs on each of the 69 code levels. Each one must change exactly one line, never inside a string or a comment, and for at least 85% of the levels one of them has to break a test.
+
+`check_scenes.js` builds the scene of every test of the 69 code levels, 471 in all, and plays them without graphics. The model solution's real results must play to a good end. The starting code, planted bugs and seventeen kinds of nonsense must play to a bad one, and the piece that gives the scene's verdict (its gate, its lamp, its readout) has to show it. Every beat must name a piece that is on the stage, and two levels in a row may not use the same kind of scene.
 
 A conformance program that calls `input()` keeps its lines next to it (`tests/conf/077_input.in`), and `python tests/gen_expected.py` regenerates the expected outputs from CPython.
 
@@ -138,7 +146,9 @@ There is also a test in which a real browser plays the game:
     npm install --no-save puppeteer-core
     node tests/browser/smoke.js
 
-It drives a Chrome that is already installed (set `CHROME_BIN` if it is not found) through the intro, both tours, a drone level, a code level, a failing run, the step-by-step view, the bug hunt, the save code and the text size, checks that the score starts and follows the floor, and then starts the page again with the network switched off. Last, it renders the music of four settings without playing it and checks every note is in key, the level is steady and nothing clips.
+It drives a Chrome that is already installed (set `CHROME_BIN` if it is not found) through the intro, both tours, a drone level, a code level and its scene (a wrong answer skipped, a right one watched to its end), the step-by-step view, the bug hunt, the save code and the text size, checks that the score starts and follows the floor, and then starts the page again with the network switched off. Last, it renders the music of four settings without playing it and checks every note is in key, the level is steady and nothing clips.
+
+To look at any scene outside the game, open `tools/dev-scenes.html` from a local server, or [on the site](https://ka3l0z.github.io/pylon/tools/dev-scenes.html): pick a level and a test, then play the model answer, the starting code, a planted bug or an answer of nonsense.
 
 To listen to the score outside the game, open `tools/dev-score.html` from a local server: pick a floor, a scene and how far the player has come, press Play, and try the moments the music answers. Its Measure button reports loudness, balance and every note that was written, and draws a spectrogram.
 
