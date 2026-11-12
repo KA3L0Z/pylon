@@ -7,7 +7,7 @@ globalThis.window = globalThis;
 globalThis.PYLON_LEVELS = [];
 for (const f of fs.readdirSync(path.join(rootDir, 'js')).filter(f => /^levels-z\d+\.js$/.test(f)).sort()) require(path.join(rootDir, 'js', f));
 if (fs.existsSync(path.join(rootDir, 'js', 'toolcards.js'))) require(path.join(rootDir, 'js', 'toolcards.js'));
-const Curriculum = require('../js/curriculum.js'), Saga = require('../js/saga.js');
+const Curriculum = require('../js/curriculum.js'), Saga = require('../js/saga.js'), Think = require('../js/think.js');
 const levels = Curriculum.arrange(globalThis.PYLON_LEVELS).levels, floors = Curriculum.FLOORS.length, errors = [];
 
 for (const l of levels) {
@@ -15,7 +15,16 @@ for (const l of levels) {
   if (!m) errors.push(l.id + ': no line of story');
   else if (m.length < 60 || m.length > 330) errors.push(l.id + ': its line of story is ' + m.length + ' characters (60 to 330 reads well above a briefing)');
   if (l.kind === 'code' && !(l.lesson && l.lesson.length > 200)) errors.push(l.id + ': no briefing to open on');
+  // the questions under a briefing: two of them, each a question, none of them a line of the answer
+  if (l.kind === 'code') {
+    const qs = Think[l.id] || [];
+    if (qs.length !== 2) errors.push(l.id + ': ' + qs.length + ' questions under its briefing, not two');
+    for (const q of qs) { if (q.indexOf('?') < 0) errors.push(l.id + ': "' + q.slice(0, 40) + '" asks nothing'); if (q.length > 260) errors.push(l.id + ': a question of ' + q.length + ' characters'); }
+    const sol = String(l.solution).split('\n').map(s => s.replace(/#.*$/, '').trim()).filter(s => s.length > 14 && !/^(def|class|return|for|while|if|else|elif|import|from)\b/.test(s));
+    for (const s of sol) if (qs.some(q => q.indexOf(s) >= 0)) errors.push(l.id + ': a question quotes the answer: ' + s);
+  }
 }
+for (const id of Object.keys(Think)) if (!levels.some(l => l.id === id && l.kind === 'code')) errors.push('questions for ' + id + ', which is not a code level');
 for (const id of Object.keys(Saga.MISSIONS)) if (!levels.some(l => l.id === id)) errors.push('a line of story for ' + id + ', which is not a level');
 for (let f = 1; f <= floors; f++) {
   if (!Saga.SCENES['f' + f + 's']) errors.push('floor ' + f + ' has no opening scene');

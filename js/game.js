@@ -1157,6 +1157,11 @@ function toggleCard(head) {
   box.classList.toggle('open', open);
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
+// The questions at the end of a briefing: what the examples did not cover and the mission leaves to the player.
+function thinkHtml(lv) {
+  const qs = (window.PYLON_THINK || {})[lv.id];
+  return qs && qs.length ? '<div class="think"><h4>Work this out first</h4><p>The briefing showed the tools on other data. These are the questions it leaves open for this mission.</p><ol>' + qs.map(q => '<li>' + esc(q) + '</li>').join('') + '</ol></div>' : '';
+}
 function renderLesson() {
   const el = $('tab-lesson'), lab = cur.kind === 'sandbox', i = INDEX[cur.id], next = lab ? null : nextOf(cur), s = st(cur.id), teach = !!next && next.kind === 'code';
   let h = '<div class="chips">' + chips(cur) + '</div>';
@@ -1168,7 +1173,7 @@ function renderLesson() {
     // used, never which ones this task needs or how to put them together.
     h += '<section class="brief" id="brief"><div class="eyebrow">Mission briefing</div><h3>' + esc(cur.concept) + '</h3>' +
       '<p class="brief-why">What this mission may call for, shown at work on other data. Which of it the task needs, and how the pieces fit together, is yours to work out.</p>' +
-      '<div id="brief-body">' + cur.lesson + '</div>' + cardsHtml(cur, true, 'Tools for this mission') +
+      '<div id="brief-body">' + cur.lesson + '</div>' + cardsHtml(cur, true, 'Tools for this mission') + thinkHtml(cur) +
       '<div class="now-actions"><button type="button" class="btn primary" id="go-code">Open the editor</button><button type="button" class="btn" id="go-tools">All your tools</button></div></section>';
   }
   if (false) {

@@ -180,6 +180,10 @@ p { margin: 0; }
 #app.kb #tab-code:has(#term-in:focus) :is(#editor, .keys, .ac-strip, .runbar, #hints, #results) { display: none; }
 /* the story: a line of plot above each briefing, and scenes that play in the dialog */
 .mission { margin: 0 0 16px; padding: 10px 14px; font: 400 15.5px/1.55 var(--body); color: var(--ink-2); background: var(--deck-2); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; }
+.think { margin: 18px 0 14px; padding: 12px 16px 10px; background: var(--deck-2); border: 1px solid var(--line-2); border-left: 3px solid var(--amber); border-radius: 0 4px 4px 0; }
+.think h4 { margin: 0 0 4px; font: 600 13px/1.2 var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--amber); }
+.think p { margin: 0 0 8px; color: var(--mute); font-size: 14.5px; }
+.think ol { margin: 0; padding-left: 20px; } .think li { margin: 0 0 8px; line-height: 1.5; }
 .scene .sc-lines { max-height: min(52vh, 420px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin: 12px 0 16px; padding-right: 4px; }
 .sc-line { margin: 0; font: 400 16.5px/1.55 var(--body); color: var(--ink); }
 .sc-line b { display: block; margin-bottom: 2px; font: 600 11.5px/1.2 var(--display); letter-spacing: .18em; text-transform: uppercase; color: var(--mute); }
@@ -827,6 +831,7 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/toolcards.js?v=bbd2f717"></script>
 <script src="js/story.js?v=d0085020"></script>
 <script src="js/saga.js?v=12da5cfd"></script>
+<script src="js/think.js?v=e5d17cbf"></script>
 <script src="js/curriculum.js?v=9c74b978"></script>
 <script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
@@ -834,7 +839,7 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/scenes.js?v=a55b244b"></script>
 <script src="js/world.js?v=8f903d0d"></script>
 <script src="js/score.js?v=088221a0"></script>
-<script src="js/game.js?v=dfc59a8c"></script>
+<script src="js/game.js?v=2817dea9"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", function () {
   navigator.serviceWorker.register("sw.js").catch(function () { /* no offline copy here: the game works without one */ });
