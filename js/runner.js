@@ -9,13 +9,17 @@ const MP = root.MiniPy, FILE = MP.FILE;
 const PERF_FACTOR = 16, PERF_SLACK = 600, TEST_STEPS = 3000000, LOAD_STEPS = 3000000, ROBOT_STEPS = 400000, MAX_ACTIONS = 500;
 let PRELUDE = root.PYLON_PRELUDE || '';
 
-function session(builtins) {
-  const s = new MP.Session({ builtins });
+// What one run hands the program: the lines input() will read, and its files. A level can give files to all its tests.
+const ioOf = (level, t) => ({ stdin: t && t.stdin !== undefined ? t.stdin : (level && level.stdin) || '', files: Object.assign({}, level && level.files, t && t.files) });
+function setIo(s, io) { s.setInput(io && io.stdin !== undefined ? io.stdin : ''); s.setFiles((io && io.files) || {}); }
+function session(builtins, io) {
+  const s = new MP.Session({ builtins, echo: !!(io && io.echo) });
   if (PRELUDE) {
     const r = s.exec(PRELUDE, FILE);
     if (!r.ok) throw new Error('Pylon prelude failed: ' + r.error.type + ': ' + r.error.message + ' (line ' + (r.error.line % FILE) + ')');
   }
   s.output = '';
+  if (io) setIo(s, io);
   return s;
 }
 // The line in the player's own code that an error points at (helper code is tagged with FILE offsets).
@@ -38,11 +42,12 @@ const REF = Object.create(null);
 // Steps the reference solution needs on each perf test. Speed limits are a multiple of this.
 function refSteps(level) {
   if (REF[level.id]) return REF[level.id];
-  const s = session(), steps = [];
+  const s = session(null, ioOf(level, null)), steps = [];
   s.exec(level.solution, FILE * 90, 5e7);
   level.tests.forEach((t, i) => {
     const base = FILE * (2 + i);
     if (t.stdout !== undefined) return;
+    setIo(s, ioOf(level, t));
     if (t.setup) s.exec(t.setup, base, 5e7);
     const r = s.eval(t.call, base, 5e7);
     steps[i] = r.ok ? r.steps : 5e7;
@@ -52,12 +57,18 @@ function refSteps(level) {
 function runTests(level, code, opts) {
   opts = opts || {};
   const res = { kind: 'code', ok: false, error: null, errorLine: null, output: '', tests: [], lines: countLines(code) };
-  const s = session();
+  const printed = level.tests.some(t => t.stdout !== undefined);
+  // A program that is judged by what it prints runs once for every test, each time with that test's input and files.
+  const s = session(null, ioOf(level, printed ? level.tests[0] : null));
   const load = s.exec(code, 0, LOAD_STEPS);
   res.output = load.output;
   if (!load.ok) { res.error = load.error; res.errorLine = userLine(load.error); return res; }
-  if (level.tests.some(t => t.stdout !== undefined)) {
-    level.tests.forEach((t, i) => { res.tests.push({ index: i, ok: normOut(load.output) === normOut(t.stdout), stdout: true, expect: normOut(t.stdout), got: normOut(load.output) }); });
+  if (printed) {
+    level.tests.forEach((t, i) => {
+      const r = i === 0 ? load : session(null, ioOf(level, t)).exec(code, 0, LOAD_STEPS);
+      res.tests.push({ index: i, ok: r.ok && normOut(r.output) === normOut(t.stdout), stdout: true, expect: normOut(t.stdout), got: normOut(r.output), stdin: t.stdin !== undefined ? String(t.stdin) : null,
+        error: r.ok ? null : r.error, errorLine: r.ok ? null : userLine(r.error), steps: r.steps });
+    });
     res.ok = res.tests.every(t => t.ok);
     return res;
   }
@@ -70,6 +81,9 @@ function runTests(level, code, opts) {
       const d = s.eval('_ops_text' + t.call.trim().slice(3), base, 200000);
       if (d.ok && typeof d.value === 'string') tr.show = d.value;
     }
+    const io = ioOf(level, t);
+    setIo(s, io);
+    if (Object.keys(io.files).length) tr.files = io.files;
     if (t.setup) {
       const r = s.exec(t.setup, base, TEST_STEPS);
       tr.output += r.output;
@@ -92,9 +106,9 @@ function runTests(level, code, opts) {
   return res;
 }
 // Run code with no tests: the scratchpad and the "run this example" buttons in lessons.
-function runFree(code, maxSteps) {
-  const s = session(), r = s.exec(code, 0, maxSteps || LOAD_STEPS);
-  return { kind: 'sandbox', ok: r.ok, error: r.error, errorLine: userLine(r.error), output: r.output, steps: r.steps, tests: [], runs: [] };
+function runFree(code, maxSteps, io) {
+  const s = session(null, io || null), r = s.exec(code, 0, maxSteps || LOAD_STEPS);
+  return { kind: 'sandbox', ok: r.ok, error: r.error, errorLine: userLine(r.error), output: r.output, steps: r.steps, tests: [], runs: [], files: s.files(), inputLeft: s.io.stdin.length - s.io.pos };
 }
 
 // ---------------------------------------------------------------- step-by-step trace
@@ -153,9 +167,10 @@ function brief(v, depth) {
 }
 // Runs the code (and one test call for code levels) while recording, before every line of the player's code,
 // which line is next and what every variable holds. Returns the recording for the step-by-step viewer.
-function traceRun(level, code, testIndex) {
+function traceRun(level, code, testIndex, io) {
   const out = { ok: false, error: null, errorLine: null, steps: [], start: 0, truncated: false, label: 'your program', result: null, expect: null, output: '' };
-  const s = session(), R = MP.R, prelude = new Set(Object.keys(s.G));
+  const first = level.kind === 'code' && level.tests.length ? (level.tests[testIndex] || level.tests[0]) : null;
+  const s = session(null, io || ioOf(level, first)), R = MP.R, prelude = new Set(Object.keys(s.G));
   let busy = false, base = 0;
   const isCallable = v => v instanceof MP.PyFunc || v instanceof MP.PyClass || v instanceof MP.PyModule || v instanceof MP.PyBuiltin;
   const globalsNow = raw => { for (const k in s.G) { if (raw.length >= 16) break; const v = s.G[k]; if (!prelude.has(k) && k.slice(0, 2) !== '__' && !isCallable(v)) raw.push([k, v]); } return raw; };
@@ -256,6 +271,7 @@ function traceRun(level, code, testIndex) {
   const tb = FILE * (2 + level.tests.indexOf(t));
   out.label = t.show || t.call;
   if (!t.show && /^ops\(/.test(t.call.trim())) { const d = s.eval('_ops_text' + t.call.trim().slice(3), tb, 200000); if (d.ok && typeof d.value === 'string') out.label = d.value; }
+  setIo(s, ioOf(level, t));
   if (t.setup) { const r = s.exec(t.setup, tb, TEST_STEPS); phase(r); if (!r.ok) { out.error = r.error; out.errorLine = userLine(r.error); return out; } }
   const r = s.eval(t.call, tb, TEST_STEPS, rec);
   phase(r);
@@ -358,14 +374,14 @@ function runRobot(level, code) {
   res.ok = !res.tooLong && res.runs.length === level.maps.length && res.runs.every(r => r.ok);
   return res;
 }
-function run(level, code, opts) { return level.kind === 'robot' ? runRobot(level, code) : level.kind === 'sandbox' ? runFree(code) : runTests(level, code, opts); }
+function run(level, code, opts) { return level.kind === 'robot' ? runRobot(level, code) : level.kind === 'sandbox' ? runFree(code, 0, opts && opts.io) : runTests(level, code, opts); }
 // Quick syntax check for the editor: null when the code parses, else { line, message, type }.
 function syntaxError(code) {
   try { MP.parse(code, 0); return null; }
   catch (e) { if (e instanceof MP.PySyntax) return { line: e.line, message: e.msg, type: e.kind }; return null; }
 }
 
-root.PylonRunner = { run, runTests, runRobot, runFree, traceRun, brief, simulate, parseMap, refSteps, userLine, syntaxError, countLines, normOut, session,
+root.PylonRunner = { run, runTests, runRobot, runFree, traceRun, brief, simulate, parseMap, refSteps, userLine, syntaxError, countLines, normOut, session, ioOf,
   setPrelude(src) { PRELUDE = src; }, PERF_FACTOR, FILE };
 if (typeof module !== 'undefined' && module.exports) module.exports = root.PylonRunner;
 })(typeof window !== 'undefined' ? window : globalThis);

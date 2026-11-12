@@ -214,7 +214,8 @@ def('print', (args, kw) => {
   const sep = kwget(kw, 'sep', ' '), end = kwget(kw, 'end', '\n');
   let s = '';
   for (let i = 0; i < args.length; i++) s += (i ? (sep === null ? ' ' : str(sep)) : '') + str(args[i]);
-  out(s + (end === null ? '\n' : str(end)));
+  const text = s + (end === null ? '\n' : str(end)), file = kwget(kw, 'file', null);
+  if (file === null) out(text); else call(getAttr(file, 'write'), [text]);      // print(..., file=f) writes into a file
   return null;
 });
 def('len', args => { argc('len', args, 1, 1); return pyLen(args[0]); });
@@ -414,8 +415,6 @@ def('format', args => fmt(args[0], args.length > 1 ? args[1] : ''));
 def('vars', args => getAttr(args[0], '__dict__'));
 def('dir', args => { const names = new Set(MP.attrErr ? [] : []); const o = args[0]; if (o instanceof PyObj) { for (const k in o.d) names.add(k); for (const c of o.cls.mro) for (const k in c.d) names.add(k); } else if (o instanceof PyClass) { for (const c of o.mro) for (const k in c.d) names.add(k); } else if (o instanceof PyModule) { for (const k in o.d) names.add(k); } else { const mt = MP.mtFor(o); if (mt) for (const k in mt) names.add(k); } return Array.from(names).sort(); });
 const unavailable = (name, why) => def(name, () => { throw err('RuntimeError', name + '() is not available in Pylon. ' + why); });
-unavailable('input', 'Your code gets its data from function arguments instead.');
-unavailable('open', 'There are no files here.');
 unavailable('eval', 'Write the expression directly.');
 unavailable('exec', 'Write the code directly.');
 unavailable('compile', 'Write the code directly.');
@@ -899,6 +898,97 @@ PR.getter = (p, args) => new PyProperty(args[0], p.fset);
 PR.deleter = p => p;
 PR.fget = { get: p => p.fget };
 PR.fset = { get: p => p.fset };
+
+// ---------------------------------------------------------------- input() and files
+// A program in the browser has no keyboard to wait for and no disk. The host gives every run its lines of input and
+// its files (Session.io); whatever the program writes stays in memory, where the host and the tests can read it back.
+const ioState = () => R.io || (R.io = { stdin: [], pos: 0, files: new Map(), echo: false });
+def('input', args => {
+  argc('input', args, 0, 1);
+  const st = ioState();
+  if (args.length) out(str(args[0]));
+  if (st.pos >= st.stdin.length) {
+    const e = err('EOFError', 'EOF when reading a line');
+    e.hint = st.stdin.length ? 'input() was called ' + (st.pos + 1) + ' times, but this run was given only ' + st.stdin.length + (st.stdin.length === 1 ? ' line' : ' lines') + ' of input.'
+      : 'input() asked for a line, but this run was given no input.';
+    throw e;
+  }
+  const line = st.stdin[st.pos++];
+  if (st.echo) out(line + '\n');           // a terminal shows what was typed; a captured run does not
+  return line;
+});
+const FILE_CLS = new PyClass('TextIOWrapper', [T.object], Object.create(null));
+FILE_CLS.native = true; FILE_CLS.mro = [FILE_CLS, T.object]; FILE_CLS.mod = '_io';
+const UNSUPPORTED = MP.mkExcClass('UnsupportedOperation', EXC.OSError);       // made after the built-in names were listed, so it is not one of them
+const osErr = (cls, text, name) => { const e = new PyErr(mkExc(cls, [text + ': ' + repr(name)])); e.exc.d.filename = name; return e; };
+function fileState(o, need) {
+  const f = o instanceof PyObj ? o.f : undefined;
+  if (!f) throw err('TypeError', 'this method needs a file object');
+  if (f.closed) throw err('ValueError', 'I/O operation on closed file.');
+  if (need === 'r' && !f.canRead) throw new PyErr(mkExc(UNSUPPORTED, ['not readable']));
+  if (need === 'w' && !f.canWrite) throw new PyErr(mkExc(UNSUPPORTED, ['not writable']));
+  return f;
+}
+function fileLine(f) {
+  if (f.pos >= f.text.length) return '';
+  const nl = f.text.indexOf('\n', f.pos), end = nl < 0 ? f.text.length : nl + 1, line = f.text.slice(f.pos, end);
+  f.pos = end;
+  return line;
+}
+function fileWrite(f, s) {
+  if (typeof s !== 'string') throw err('TypeError', 'write() argument must be str, not ' + tn(s));
+  if (f.text.length + s.length > 2000000) throw err('OSError', "[Errno 28] No space left on device: Pylon's files hold up to 2 MB");
+  f.text += s;
+  f.files.set(f.name, f.text);            // always flushed: a second open() sees what was written so far
+}
+const closeFile = o => { if (o.f && !o.f.closed) { o.f.closed = true; o.d.closed = true; } };
+const fdef = (name, f) => { FILE_CLS.d[name] = meth(name, f); };
+fdef('read', a => {
+  argc('read', a, 1, 2);
+  const f = fileState(a[0], 'r'), n = a.length > 1 && a[1] !== null ? Number(a[1]) : -1, end = n < 0 ? f.text.length : Math.min(f.text.length, f.pos + n), s = f.text.slice(f.pos, end);
+  f.pos = end;
+  return s;
+});
+fdef('readline', a => fileLine(fileState(a[0], 'r')));
+fdef('readlines', a => { const f = fileState(a[0], 'r'), lines = []; for (;;) { const l = fileLine(f); if (l === '') break; lines.push(l); } return lines; });
+fdef('write', a => { argc('write', a, 2, 2); fileWrite(fileState(a[0], 'w'), a[1]); return a[1].length; });
+fdef('writelines', a => { argc('writelines', a, 2, 2); const f = fileState(a[0], 'w'), it = iter(a[1]); for (;;) { const s = it.next(); if (s === STOP) break; fileWrite(f, s); } return null; });
+fdef('flush', a => { fileState(a[0]); return null; });
+fdef('close', a => { closeFile(a[0]); return null; });
+fdef('readable', a => fileState(a[0]).canRead);
+fdef('writable', a => fileState(a[0]).canWrite);
+fdef('__enter__', a => { fileState(a[0]); return a[0]; });
+fdef('__exit__', a => { closeFile(a[0]); return false; });
+fdef('__iter__', a => { fileState(a[0], 'r'); return a[0]; });
+fdef('__next__', a => { const l = fileLine(fileState(a[0], 'r')); if (l === '') throw stopIter(); return l; });
+FILE_CLS.reprFn = o => '<_io.TextIOWrapper name=' + repr(o.f.name) + " mode='" + o.f.mode + "' encoding='utf-8'>";
+def('open', (args, kw) => {
+  argc('open', args, 1, 3);
+  const name = args[0], mode = args.length > 1 ? args[1] : kwget(kw, 'mode', 'r');
+  if (typeof name !== 'string') throw err('TypeError', 'open() needs the name of the file as a string, not ' + tn(name));
+  if (typeof mode !== 'string') throw err('TypeError', "open() argument 'mode' must be str, not " + tn(mode));
+  const m = mode.replace('t', '');
+  if (['r', 'w', 'a', 'x'].indexOf(m) < 0) {
+    const known = /^[rwaxbt+]+$/.test(mode) && mode.length <= 3;
+    const e = err('ValueError', known ? "mode '" + mode + "' is not available in Pylon's Python" : "invalid mode: '" + mode + "'");
+    e.hint = 'Use "r" to read, "w" to start a new file, or "a" to add to the end of one.';
+    throw e;
+  }
+  const files = ioState().files;
+  if (m === 'r' && !files.has(name)) {
+    const e = osErr(EXC.FileNotFoundError, '[Errno 2] No such file or directory', name);
+    e.exc.d.errno = 2;
+    e.hint = files.size ? 'The files that exist here: ' + Array.from(files.keys()).sort().join(', ') + '.' : 'There are no files here yet. A file appears when a program opens it with "w".';
+    throw e;
+  }
+  if (m === 'x' && files.has(name)) { const e = osErr(EXC.FileExistsError, '[Errno 17] File exists', name); e.exc.d.errno = 17; throw e; }
+  if (m === 'w' || m === 'x' || !files.has(name)) files.set(name, '');
+  const o = new PyObj(FILE_CLS);
+  o.f = { name, mode, text: files.get(name), pos: 0, closed: false, canRead: m === 'r', canWrite: m !== 'r', files };
+  o.d.name = name; o.d.mode = mode; o.d.closed = false;
+  return o;
+});
+MP.FILE_CLS = FILE_CLS;
 
 Object.assign(MP, { def, meth, kwget, argc, keyErr, sortArr, dictUpdate, counterAdd, mkIter, isinstance, excStr, stopIter, strFormat });
 })(typeof window !== 'undefined' ? window : globalThis);

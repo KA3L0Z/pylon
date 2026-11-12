@@ -10,7 +10,7 @@ const { R, PyFloat, PyTuple, PyRange, PyDict, PyDefaultDict, PyCounter, PyOrdere
 const MODS = MP.modules = Object.create(null);
 const fn = (name, f) => new PyBuiltin(name, f);
 const umeth = (name, f) => { const b = meth(name, f); b.user = true; return b; };
-const NOT_INCLUDED = ['re', 'json', 'os', 'datetime', 'numpy', 'pandas', 'requests', 'threading', 'asyncio', 'pathlib', 'subprocess', 'socket', 'decimal', 'fractions', 'statistics', 'enum', 'unittest', 'pytest'];
+const NOT_INCLUDED = ['json', 'csv', 'os', 'datetime', 'numpy', 'pandas', 'requests', 'threading', 'asyncio', 'pathlib', 'subprocess', 'socket', 'decimal', 'fractions', 'statistics', 'enum', 'unittest', 'pytest'];
 MP.importModule = function (name, env) {
   const cache = env.mods || (env.mods = Object.create(null));
   if (cache[name]) return cache[name];
@@ -533,6 +533,277 @@ MODS.contextlib = d => {
   d.suppress = fn('suppress', a => { const o = new PyObj(SUPPRESS); o.kinds = a; return o; });
 };
 
+// ---------------------------------------------------------------- re
+// Python's regular expressions, run by the JavaScript engine. The two dialects agree on nearly everything a course
+// needs; reTranslate() rewrites the places where they differ: named groups, \A and \Z, "$" before a final newline,
+// "." and line breaks, (?i)-style flags at the start, {,n}, comments and verbose mode.
+// Known gaps: \w, \d and \b see ASCII letters and digits only, and flags inside a group, (?i:...), are refused.
+const RE_FLAGS = { I: 2, IGNORECASE: 2, M: 8, MULTILINE: 8, S: 16, DOTALL: 16, X: 64, VERBOSE: 64, A: 256, ASCII: 256, U: 32, UNICODE: 32 };
+const RE_ERROR = MP.mkExcClass('re.error', EXC.Exception);
+const reClass = name => { const c = new PyClass(name, [T.object], Object.create(null)); c.native = true; c.mro = [c, T.object]; c.mod = 're'; return c; };
+const RE_PATTERN = reClass('Pattern'), RE_MATCH = reClass('Match');
+const reErr = (msg, at) => new PyErr(mkExc(RE_ERROR, [msg + (at === undefined ? '' : ' at position ' + at)]));
+function reTranslate(pat, flags) {
+  const n = pat.length, names = [];
+  let i = 0, src = '', inClass = false, groups = 0;
+  for (;;) {                                   // flags written at the start of the pattern: (?i), (?ms)
+    const m = /^\(\?([aiLmsux]+)\)/.exec(pat.slice(i));
+    if (!m) break;
+    for (const c of m[1]) flags |= ({ i: 2, m: 8, s: 16, x: 64, a: 256, u: 32 })[c] || 0;
+    i += m[0].length;
+  }
+  const verbose = !!(flags & 64), multi = !!(flags & 8), dotall = !!(flags & 16);
+  while (i < n) {
+    const c = pat[i];
+    if (c === '\\') {
+      const d = pat[i + 1];
+      if (d === undefined) throw reErr('bad escape (end of pattern)', i);
+      if (!inClass && d === 'A') src += '(?<![\\s\\S])';
+      else if (!inClass && d === 'Z') src += '(?![\\s\\S])';
+      else src += c + d;
+      i += 2;
+      continue;
+    }
+    if (inClass) { if (c === ']') inClass = false; src += c; i++; continue; }
+    if (c === '[') {
+      inClass = true; src += c; i++;
+      if (pat[i] === '^') { src += '^'; i++; }
+      if (pat[i] === ']') { src += '\\]'; i++; }       // "]" right after "[" is an ordinary character in Python
+      continue;
+    }
+    if (verbose) {
+      if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v') { i++; continue; }
+      if (c === '#') { while (i < n && pat[i] !== '\n') i++; continue; }
+    }
+    if (c === '(') {
+      if (pat[i + 1] !== '?') { groups++; src += '('; i++; continue; }
+      const rest = pat.slice(i + 2);
+      let m;
+      if ((m = /^P<([A-Za-z_]\w*)>/.exec(rest))) {
+        if (names.indexOf(m[1]) >= 0) throw reErr("redefinition of group name '" + m[1] + "'", i + 4);
+        groups++; names[groups] = m[1]; src += '(?<' + m[1] + '>'; i += 2 + m[0].length; continue;
+      }
+      if ((m = /^P=([A-Za-z_]\w*)\)/.exec(rest))) {
+        if (names.indexOf(m[1]) < 0) throw reErr("unknown group name '" + m[1] + "'", i + 4);
+        src += '\\k<' + m[1] + '>'; i += 2 + m[0].length; continue;
+      }
+      if (rest[0] === '#') { const end = pat.indexOf(')', i); if (end < 0) throw reErr('missing ), unterminated comment', i); i = end + 1; continue; }
+      if (rest[0] === 'P') throw reErr('unknown extension ?P' + (rest[1] || ''), i + 1);
+      if (/^[aiLmsux]+\)/.test(rest)) throw reErr('global flags not at the start of the expression', i);
+      if (/^[aiLmsux-]+:/.test(rest)) throw reErr("flags inside a group, such as (?i:...), are not available in Pylon's Python", i);
+      src += '('; i++;                                 // (?: (?= (?! (?<= (?<! mean the same in both dialects
+      continue;
+    }
+    if (c === '$') { src += multi ? '$' : '(?=\\n?(?![\\s\\S]))'; i++; continue; }
+    if (c === '.') { src += dotall ? '[\\s\\S]' : '[^\\n]'; i++; continue; }
+    if (c === '{') { const m = /^\{,(\d+)\}/.exec(pat.slice(i)); if (m) { src += '{0,' + m[1] + '}'; i += m[0].length; continue; } }
+    src += c; i++;
+  }
+  if (inClass) throw reErr('unterminated character set');
+  return { source: src, flags, names, groups, base: (flags & 2 ? 'i' : '') + (multi ? 'm' : '') };
+}
+// The engine's regular expression for one use: 'g' searches from a position, 'y' must match at it, 'f' must match to the end.
+function reEngine(p, kind) {
+  if (p[kind]) return p[kind];
+  const src = kind === 'f' ? '(?:' + p.source + ')(?![\\s\\S])' : p.source, fl = p.base + (kind === 'g' ? 'g' : 'y');
+  let r;
+  try { r = new RegExp(src, fl + 'd'); }
+  catch (e) {
+    try { r = new RegExp(src, fl); }
+    catch (e2) { throw reErr(String((e2 && e2.message) || e2).replace(/^Invalid regular expression: \/[\s\S]*\/[a-z]*: /, '').replace(/^Invalid regular expression: /, '').toLowerCase()); }
+  }
+  return p[kind] = r;
+}
+const reCache = new Map();
+function reCompile(pattern, flags) {
+  if (pattern instanceof PyObj && pattern.cls === RE_PATTERN) {
+    if (flags) throw err('ValueError', 'cannot process flags argument with a compiled pattern');
+    return pattern;
+  }
+  if (typeof pattern !== 'string') throw err('TypeError', 'first argument must be string or compiled pattern');
+  if (typeof flags === 'boolean') flags = +flags;
+  if (typeof flags !== 'number') throw err('TypeError', 'flags must be a number such as re.IGNORECASE');
+  const key = flags + '/' + pattern;
+  let o = reCache.get(key);
+  if (o) return o;
+  const p = reTranslate(pattern, flags);
+  p.pattern = pattern;
+  reEngine(p, 'g');                                    // a pattern with a mistake in it fails here, not at its first use
+  o = new PyObj(RE_PATTERN);
+  o.p = p;
+  o.d.pattern = pattern; o.d.flags = p.flags | 32; o.d.groups = p.groups;
+  const gi = new PyDict();
+  p.names.forEach((name, k) => { dset(gi, name, k); });
+  o.d.groupindex = gi;
+  if (reCache.size > 200) reCache.clear();
+  reCache.set(key, o);
+  return o;
+}
+const reText = (s, what) => { if (typeof s !== 'string') throw err('TypeError', "expected string or bytes-like object, got '" + tn(s) + "'"); return s; };
+function reFind(po, kind, string, pos) {
+  const r = reEngine(po.p, kind);
+  r.lastIndex = pos;
+  const m = r.exec(string);
+  if (++R.steps > R.max) stepLimit();
+  return m;
+}
+function reMatchObj(po, m, string, pos) {
+  if (!m) return null;
+  const o = new PyObj(RE_MATCH), p = po.p;
+  o.m = m; o.po = po;
+  let last = null;
+  for (let g = 1; g <= p.groups; g++) if (m[g] !== undefined) last = g;
+  o.d.string = string; o.d.re = po; o.d.pos = pos; o.d.endpos = string.length; o.d.lastindex = last; o.d.lastgroup = last !== null && p.names[last] !== undefined ? p.names[last] : null;
+  return o;
+}
+function* reEach(po, string, pos) {                  // every match from left to right, the way findall and sub walk
+  let at = pos || 0;
+  while (at <= string.length) {
+    const m = reFind(po, 'g', string, at);
+    if (!m) return;
+    yield m;
+    at = m.index + m[0].length + (m[0].length === 0 ? 1 : 0);
+  }
+}
+const reSelf = (o, cls, what) => { if (!(o instanceof PyObj) || o.cls !== cls) throw err('TypeError', 'this method needs a ' + what + ' object'); return o; };
+function reGroupIndex(mo, g) {
+  const p = mo.po.p;
+  if (typeof g === 'string') { const k = p.names.indexOf(g); if (k < 1) throw err('IndexError', 'no such group'); return k; }
+  if (typeof g === 'boolean') g = +g;
+  if (typeof g !== 'number' || g < 0 || g > p.groups) throw err('IndexError', 'no such group');
+  return g;
+}
+const reSpan = (mo, k) => {
+  const m = mo.m;
+  if (k === 0) return [m.index, m.index + m[0].length];
+  if (m[k] === undefined) return [-1, -1];
+  return m.indices && m.indices[k] ? [m.indices[k][0], m.indices[k][1]] : [-1, -1];
+};
+const mdef = (name, f) => { RE_MATCH.d[name] = meth(name, f); };
+mdef('group', a => {
+  const mo = reSelf(a[0], RE_MATCH, 'match');
+  if (a.length === 1) return mo.m[0];
+  const one = g => { const v = mo.m[reGroupIndex(mo, g)]; return v === undefined ? null : v; };
+  return a.length === 2 ? one(a[1]) : new PyTuple(a.slice(1).map(one));
+});
+mdef('__getitem__', a => { const mo = reSelf(a[0], RE_MATCH, 'match'), v = mo.m[reGroupIndex(mo, a[1])]; return v === undefined ? null : v; });
+mdef('groups', (a, kw) => {
+  const mo = reSelf(a[0], RE_MATCH, 'match'), dflt = a.length > 1 ? a[1] : kwget(kw, 'default', null), outv = [];
+  for (let g = 1; g <= mo.po.p.groups; g++) outv.push(mo.m[g] === undefined ? dflt : mo.m[g]);
+  return new PyTuple(outv);
+});
+mdef('groupdict', (a, kw) => {
+  const mo = reSelf(a[0], RE_MATCH, 'match'), dflt = a.length > 1 ? a[1] : kwget(kw, 'default', null), dd = new PyDict();
+  mo.po.p.names.forEach((name, k) => { dset(dd, name, mo.m[k] === undefined ? dflt : mo.m[k]); });
+  return dd;
+});
+mdef('start', a => { const mo = reSelf(a[0], RE_MATCH, 'match'); return reSpan(mo, a.length > 1 ? reGroupIndex(mo, a[1]) : 0)[0]; });
+mdef('end', a => { const mo = reSelf(a[0], RE_MATCH, 'match'); return reSpan(mo, a.length > 1 ? reGroupIndex(mo, a[1]) : 0)[1]; });
+mdef('span', a => { const mo = reSelf(a[0], RE_MATCH, 'match'); return new PyTuple(reSpan(mo, a.length > 1 ? reGroupIndex(mo, a[1]) : 0)); });
+RE_MATCH.reprFn = o => '<re.Match object; span=(' + o.m.index + ', ' + (o.m.index + o.m[0].length) + '), match=' + repr(o.m[0]) + '>';
+RE_PATTERN.reprFn = o => 're.compile(' + repr(o.p.pattern) + ')';
+
+// The replacement text of sub(): \1 and \g<name> stand for groups, \n and friends for the usual characters.
+function reTemplate(po, repl) {
+  const parts = [], p = po.p;
+  let lit = '';
+  const ref = (g, at) => {
+    let k;
+    if (/^\d+$/.test(g)) { k = +g; if (k > p.groups) throw reErr('invalid group reference ' + k, at); }
+    else { k = p.names.indexOf(g); if (k < 1) throw err('IndexError', "unknown group name '" + g + "'"); }
+    if (lit) { parts.push(lit); lit = ''; }
+    parts.push(k);
+  };
+  for (let i = 0; i < repl.length; i++) {
+    const c = repl[i];
+    if (c !== '\\') { lit += c; continue; }
+    const d = repl[i + 1];
+    if (d === undefined) throw reErr('bad escape (end of pattern)', i);
+    if (d === 'g') {
+      const m = /^g<([^>]*)>/.exec(repl.slice(i + 1));
+      if (!m) throw reErr('missing <', i + 2);
+      ref(m[1], i + 3);
+      i += m[0].length;
+    } else if (d >= '1' && d <= '9') {
+      let g = d;
+      if (repl[i + 2] >= '0' && repl[i + 2] <= '9') g += repl[i + 2];
+      ref(g, i + 1);
+      i += g.length;
+    } else if ('ntrfvab\\'.indexOf(d) >= 0) { lit += ({ n: '\n', t: '\t', r: '\r', f: '\f', v: '\v', a: '\x07', b: '\b', '\\': '\\' })[d]; i++; }
+    else if (/[A-Za-z0]/.test(d)) throw reErr('bad escape \\' + d, i);
+    else { lit += c + d; i++; }
+  }
+  if (lit) parts.push(lit);
+  return parts;
+}
+function reSub(po, repl, string, count) {
+  reText(string);
+  const fnRepl = typeof repl !== 'string', parts = fnRepl ? null : reTemplate(po, repl);
+  let res = '', last = 0, done = 0;
+  for (const m of reEach(po, string, 0)) {
+    res += string.slice(last, m.index);
+    if (fnRepl) {
+      const r = call(repl, [reMatchObj(po, m, string, 0)]);
+      if (typeof r !== 'string') throw err('TypeError', 'the replacement function must return a string, not ' + tn(r));
+      res += r;
+    } else for (const part of parts) res += typeof part === 'string' ? part : (m[part] === undefined ? '' : m[part]);
+    last = m.index + m[0].length;
+    done++;
+    if (count && done >= count) break;
+  }
+  return [res + string.slice(last), done];
+}
+function reSplit(po, string, maxsplit) {
+  reText(string);
+  const parts = [], groups = po.p.groups;
+  let last = 0, done = 0;
+  for (const m of reEach(po, string, 0)) {
+    parts.push(string.slice(last, m.index));
+    for (let g = 1; g <= groups; g++) parts.push(m[g] === undefined ? null : m[g]);
+    last = m.index + m[0].length;
+    if (maxsplit && ++done >= maxsplit) break;
+  }
+  parts.push(string.slice(last));
+  return parts;
+}
+function reFindall(po, string, pos) {
+  reText(string);
+  const found = [], groups = po.p.groups;
+  for (const m of reEach(po, string, pos)) {
+    if (groups === 0) found.push(m[0]);
+    else if (groups === 1) found.push(m[1] === undefined ? '' : m[1]);
+    else { const t = []; for (let g = 1; g <= groups; g++) t.push(m[g] === undefined ? '' : m[g]); found.push(new PyTuple(t)); }
+  }
+  return found;
+}
+const reIterObj = (po, string, pos) => { reText(string); const g = reEach(po, string, pos); return lazy((function* () { for (const m of g) yield reMatchObj(po, m, string, pos); })(), 'callable_iterator'); };
+const rePos = (a, kw, k) => { const v = a.length > k ? a[k] : kwget(kw, 'pos', 0); return typeof v === 'number' ? Math.max(0, v) : 0; };
+const pdef = (name, f) => { RE_PATTERN.d[name] = meth(name, f); };
+[['search', 'g'], ['match', 'y'], ['fullmatch', 'f']].forEach(pair => {
+  pdef(pair[0], (a, kw) => { const po = reSelf(a[0], RE_PATTERN, 'pattern'), s = reText(a[1]), pos = rePos(a, kw, 2); return reMatchObj(po, reFind(po, pair[1], s, pos), s, pos); });
+});
+pdef('findall', (a, kw) => reFindall(reSelf(a[0], RE_PATTERN, 'pattern'), a[1], rePos(a, kw, 2)));
+pdef('finditer', (a, kw) => reIterObj(reSelf(a[0], RE_PATTERN, 'pattern'), a[1], rePos(a, kw, 2)));
+pdef('sub', (a, kw) => reSub(reSelf(a[0], RE_PATTERN, 'pattern'), a[1], a[2], a.length > 3 ? a[3] : kwget(kw, 'count', 0))[0]);
+pdef('subn', (a, kw) => new PyTuple(reSub(reSelf(a[0], RE_PATTERN, 'pattern'), a[1], a[2], a.length > 3 ? a[3] : kwget(kw, 'count', 0))));
+pdef('split', (a, kw) => reSplit(reSelf(a[0], RE_PATTERN, 'pattern'), a[1], a.length > 2 ? a[2] : kwget(kw, 'maxsplit', 0)));
+MODS.re = d => {
+  for (const k in RE_FLAGS) d[k] = RE_FLAGS[k];
+  d.error = RE_ERROR; d.Pattern = RE_PATTERN; d.Match = RE_MATCH;
+  const flagsOf = (a, kw, k) => (a.length > k ? a[k] : kwget(kw, 'flags', 0));
+  d.compile = fn('compile', (a, kw) => { argc('compile', a, 1, 2); return reCompile(a[0], flagsOf(a, kw, 1)); });
+  [['search', 'g'], ['match', 'y'], ['fullmatch', 'f']].forEach(pair => {
+    d[pair[0]] = fn(pair[0], (a, kw) => { argc(pair[0], a, 2, 3); const po = reCompile(a[0], flagsOf(a, kw, 2)), s = reText(a[1]); return reMatchObj(po, reFind(po, pair[1], s, 0), s, 0); });
+  });
+  d.findall = fn('findall', (a, kw) => { argc('findall', a, 2, 3); return reFindall(reCompile(a[0], flagsOf(a, kw, 2)), a[1], 0); });
+  d.finditer = fn('finditer', (a, kw) => { argc('finditer', a, 2, 3); return reIterObj(reCompile(a[0], flagsOf(a, kw, 2)), a[1], 0); });
+  d.sub = fn('sub', (a, kw) => { argc('sub', a, 3, 5); return reSub(reCompile(a[0], flagsOf(a, kw, 4)), a[1], a[2], a.length > 3 ? a[3] : kwget(kw, 'count', 0))[0]; });
+  d.subn = fn('subn', (a, kw) => { argc('subn', a, 3, 5); return new PyTuple(reSub(reCompile(a[0], flagsOf(a, kw, 4)), a[1], a[2], a.length > 3 ? a[3] : kwget(kw, 'count', 0))); });
+  d.split = fn('split', (a, kw) => { argc('split', a, 2, 4); return reSplit(reCompile(a[0], flagsOf(a, kw, 3)), a[1], a.length > 2 ? a[2] : kwget(kw, 'maxsplit', 0)); });
+  d.escape = fn('escape', a => { argc('escape', a, 1, 1); return reText(a[0]).replace(/[()[\]{}?*+\-|^$\\.&~# \t\n\r\v\f]/g, '\\$&'); });
+  d.purge = fn('purge', () => { reCache.clear(); return null; });
+};
+
 // ---------------------------------------------------------------- Session: what the game uses
 MP.RECURSION_CAP = 800;
 MP.FILE = 1000000;   // line numbers are tagged: line + FILE * n says "helper code number n", plain lines are the player's code
@@ -566,12 +837,26 @@ class Session {
     this.env = { G: this.G, B: this.B, mods: null };
     this.maxSteps = opts.maxSteps || 2000000;
     this.output = '';
+    // What a program can read and write: lines for input(), and files that live in memory. `echo` makes input()
+    // print the line it took, the way a terminal shows what was typed.
+    this.io = { stdin: [], pos: 0, files: new Map(), echo: !!opts.echo };
   }
+  setInput(text) {
+    const lines = text === null || text === undefined ? [] : String(text).replace(/\r\n?/g, '\n').split('\n');
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    this.io.stdin = lines; this.io.pos = 0;
+  }
+  setFiles(files) {
+    this.io.files = new Map();
+    for (const name in files || {}) this.io.files.set(name, String(files[name]).replace(/\r\n?/g, '\n'));
+  }
+  files() { return Array.from(this.io.files.entries()); }
   // Runs `thunk` with clean runtime state. Never throws: errors come back described.
   run(thunk, maxSteps, trace) {
     R.steps = 0; R.max = maxSteps || this.maxSteps; R.line = 0; R.calls.length = 0;
     R.out = []; R.outLen = 0; R.outCut = false; R.cur = null; R.maxCalls = 2 * MP.RECURSION_CAP;
     R.trace = trace || null;
+    R.io = this.io;
     let value, error = null;
     try { value = thunk(); }
     catch (e) { R.trace = null; error = describeError(e); }

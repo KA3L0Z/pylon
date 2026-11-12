@@ -17,6 +17,8 @@ for (const f of files) {
   if (!fs.existsSync(outFile)) continue;
   const want = fs.readFileSync(outFile, 'utf8').replace(/\r\n/g, '\n');
   const s = new MP.Session({ maxSteps: 20000000 });
+  const lines = path.join(dir, f.replace(/\.py$/, '.in'));          // what the program reads with input()
+  if (fs.existsSync(lines)) s.setInput(fs.readFileSync(lines, 'utf8'));
   let r;
   try { r = s.exec(src); } catch (e) { r = { ok: false, output: '', error: { type: 'CRASH', message: String(e && e.stack || e), line: 0 } }; }
   let got = r.output;

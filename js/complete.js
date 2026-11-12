@@ -20,6 +20,8 @@ const BUILTINS = [
   F('max', 'max(a, b)  or  max(items)', 'The largest one', 8),
   F('int', 'int(x)', 'Turn text or a float into a whole number', 8),
   F('str', 'str(x)', 'Turn a value into text', 8),
+  F('input', 'input("question")', 'Read one line of text. It is always a string', 7),
+  F('open', 'open(name, "r")', 'Open a file: "r" reads, "w" starts a new file, "a" adds to the end', 6),
   F('list', 'list(items)', 'A new list from any sequence', 8),
   F('dict', 'dict()', 'A new dictionary', 6),
   F('set', 'set(items)', 'A collection with no duplicates and fast lookups', 7),
@@ -106,6 +108,10 @@ const METHODS = {
     M('pop', 'pop()', 'Remove and return the last item', 7, true), M('extend', 'extend(items)', 'Add many items at the right end', 4), M('rotate', 'rotate(n)', 'Move the last n items to the front', 4),
     M('clear', 'clear()', 'Remove every item', 3, true), M('extendleft', 'extendleft(items)', 'Add many items at the left end', 2)],
   tuple: [M('count', 'count(x)', 'How many times x appears', 5), M('index', 'index(x)', 'Position of the first x', 5)],
+  file: [M('read', 'read()', 'The whole file as one string', 8, true), M('write', 'write(text)', 'Write one string. It adds no line break', 8), M('readlines', 'readlines()', 'A list with one string per line', 6, true),
+    M('readline', 'readline()', 'The next line, or an empty string at the end', 5, true), M('writelines', 'writelines(lines)', 'Write every string of a list', 3), M('close', 'close()', 'Close the file. A with block does it for you', 4, true)],
+  match: [M('group', 'group(n)', 'The matched text, or what group n matched', 9), M('groups', 'groups()', 'Every group, as a tuple', 7, true), M('groupdict', 'groupdict()', 'The named groups, as a dictionary', 3, true),
+    M('start', 'start()', 'Where the match begins', 5, true), M('end', 'end()', 'Where the match ends', 5, true), M('span', 'span()', 'Start and end, as a tuple', 4, true)],
 };
 METHODS.counter = [M('most_common', 'most_common(n)', 'The n most frequent items with their counts', 9), M('total', 'total()', 'The sum of all counts', 3, true), M('elements', 'elements()', 'Each item repeated as often as its count', 3, true)].concat(METHODS.dict);
 // When the type of the thing before the dot is unknown, offer the methods a learner meets most, whatever they belong to.
@@ -134,6 +140,10 @@ const MODULES = {
   random: [F('randint', 'random.randint(a, b)', 'A whole number from a to b, both included', 8), F('choice', 'random.choice(items)', 'One item, picked at random', 8), F('random', 'random.random()', 'A float from 0 up to 1', 6, true),
     F('shuffle', 'random.shuffle(items)', 'Mix a list in place', 6), F('sample', 'random.sample(items, k)', 'k different items', 4), F('seed', 'random.seed(n)', 'Make the randomness repeatable', 3), F('randrange', 'random.randrange(stop)', 'A whole number below stop', 4)],
   copy: [F('deepcopy', 'copy.deepcopy(x)', 'A copy that shares nothing with the original', 7), F('copy', 'copy.copy(x)', 'A copy of the outer container only', 5)],
+  re: [F('findall', 're.findall(pattern, text)', 'A list of every match', 9), F('search', 're.search(pattern, text)', 'The first match anywhere, or None', 9), F('fullmatch', 're.fullmatch(pattern, text)', 'A match only if the whole text fits', 8),
+    F('sub', 're.sub(pattern, replacement, text)', 'Replace every match', 8), F('split', 're.split(pattern, text)', 'Split wherever the pattern matches', 6), F('match', 're.match(pattern, text)', 'A match only at the start of the text', 6),
+    F('finditer', 're.finditer(pattern, text)', 'The match objects, one by one', 5), F('compile', 're.compile(pattern)', 'Prepare a pattern that is used many times', 5), F('escape', 're.escape(text)', 'A pattern that matches the text letter for letter', 3),
+    V('IGNORECASE', 'Flag: upper and lower case count as the same', 5), V('MULTILINE', 'Flag: ^ and $ work on every line', 4), V('DOTALL', 'Flag: the dot also matches a line break', 3)],
   operator: [F('itemgetter', 'itemgetter(i)', 'A function that picks item i, handy as a sort key', 6), F('attrgetter', 'attrgetter(name)', 'A function that reads that attribute', 4), F('add', 'operator.add(a, b)', 'a + b', 3), F('mul', 'operator.mul(a, b)', 'a * b', 3)],
 };
 const MODNAMES = Object.keys(MODULES).map(n => ({ label: n, insert: n, kind: 'mod', sig: 'import ' + n, doc: '', pri: n === 'math' || n === 'collections' ? 8 : 6 }));
@@ -159,12 +169,15 @@ const LISTY = /^(nums|arr|array|items|lst|values|stack|queue|result|results|res|
 const TEXTY = /^(s|t|text|word|line|name|string|pattern|sentence|message|msg|title|label)$/;
 // A guess at what kind of value a name holds, from the nearest place it was given a value.
 function typeOf(clean, name, pos) {
+  if (new RegExp('\\bwith\\s+open\\([^\\n]*\\)\\s+as\\s+' + name + '\\s*:').test(clean)) return 'file';
   if (MODULES[name] && new RegExp('\\bimport\\s+[\\w, ]*\\b' + name + '\\b').test(clean)) return 'mod:' + name;
   const re = new RegExp('(?:^|\\n)[ \\t]*(?:self\\.)?' + name + '[ \\t]*(?::[^=\\n]+)?=(?!=)[ \\t]*([^\\n]*)', 'g');
   let m, rhs = null;
   while ((m = re.exec(clean))) { if (m.index > pos) break; rhs = m[1]; }
   if (rhs !== null) {
     rhs = rhs.trim();
+    if (/^open\s*\(/.test(rhs)) return 'file';
+    if (/^re\.(search|match|fullmatch)\s*\(/.test(rhs) || /\.(search|match|fullmatch)\([^)]*\)$/.test(rhs)) return 'match';
     if (/^(deque|collections\.deque)\s*\(/.test(rhs)) return 'deque';
     if (/^(Counter|collections\.Counter)\s*\(/.test(rhs)) return 'counter';
     if (/^(dict|defaultdict|OrderedDict|collections\.\w+)\s*\(/.test(rhs)) return 'dict';

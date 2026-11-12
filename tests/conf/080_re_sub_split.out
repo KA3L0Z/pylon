@@ -1,0 +1,29 @@
+a#b#c#
+a#b#c333 a#b22c333
+tower at ada deck at pip
+world hello
+210 430
+too many spaces here
+rglr xprssn no match
+6 apples and 20 pears
+STOP! GO! wait
+b\n\n\ 3 [a]b
+-a-b--d- > line end! |two| |words|
+('f00 b00', 4) ('foo', 0)
+['a', 'b', 'c ', 'd'] ['', 'lead', 'and', 'trail', '']
+['a', 'b', 'c'] ['a', ',', 'b', ',', 'c'] ['a', 'b,c'] ['a', 'b', 'c']
+['1', '-', None, '2', None, '+', '3'] ['', 'a', '', 'b', 'c', ''] ['nodigits'] ['Words', 'words', 'words', '']
+a\.b\*c 1\+1=2\ \(ok\) under_score\-dash ['a.b']
+1=x, 22=y ['a ', 'x', '1', ' b ', 'y', '2', ' c'] ('- -', 2) [('x', '1'), ('y', '22')]
+[('x', '1'), ('y', '22')] (2, 3)
+['Mixed', 'CASE', 'words'] True
+[('12', 'kg'), ('5', 'm')]
+re.error for (
+re.error for [a
+re.error for *a
+re.error for (?P<n>a)(?P<n>b)
+compiled \\1(a)
+re.error: bad group reference
+TypeError for a non-string
+('10', '20') True
+{'relay-7': 2} 4 ('relay-7', 'ERROR') slow response

@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,7 +28,7 @@ INLINE_TAGS = {'b', 'i', 'code'}
 ENTITIES = {'lt', 'gt', 'amp', 'quot', 'nbsp', 'times', 'le', 'ge', 'rarr', 'minus'}
 REQUIRED = ['id', 'zone', 'order', 'kind', 'title', 'concept', 'difficulty',
             'lesson', 'task', 'starter', 'tests', 'hints', 'solution', 'explain']
-TEST_KEYS = {'setup', 'call', 'expect', 'show', 'perf', 'stdout'}
+TEST_KEYS = {'setup', 'call', 'expect', 'show', 'perf', 'stdout', 'stdin', 'files'}
 TAG_RE = re.compile(r'<(/?)([a-zA-Z0-9]+)>')
 
 
@@ -93,11 +94,32 @@ def loose(v):
     return v
 
 
-def run_code(src, label):
+@contextlib.contextmanager
+def world(level, test):
+    """What one test hands the program: its files, in an empty directory of their own, and its lines of input."""
+    files = dict(level.get('files') or {})
+    files.update((test or {}).get('files') or {})
+    stdin = (test or {}).get('stdin', level.get('stdin', ''))
+    old_dir, old_in = os.getcwd(), sys.stdin
+    work = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    os.chdir(work.name)
+    try:
+        for name, content in files.items():
+            with open(name, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(content)
+        sys.stdin = io.StringIO(stdin)
+        yield
+    finally:
+        sys.stdin = old_in
+        os.chdir(old_dir)
+        work.cleanup()
+
+
+def run_code(src, label, level=None, test=None):
     ns = {'__name__': '__main__'}
     exec(compile(PRELUDE, 'prelude.py', 'exec'), ns)
     out = io.StringIO()
-    with contextlib.redirect_stdout(out):
+    with world(level or {}, test), contextlib.redirect_stdout(out):
         exec(compile(src, label, 'exec'), ns)
     return ns, out.getvalue()
 
@@ -105,20 +127,28 @@ def run_code(src, label):
 def run_tests(level, src, label, perf=True):
     """Run the level's tests against src. Returns (failures, timings)."""
     fails, timings = [], []
+    printed = any('stdout' in t for t in level['tests'])
     try:
-        ns, out = run_code(src, label)
+        # a program judged by what it prints runs once per test, with that test's input and files
+        ns, out = run_code(src, label, level, level['tests'][0] if printed else None)
     except BaseException as e:  # noqa: BLE001 - report anything the code does
         return [f'code raised {type(e).__name__}: {e}'], timings
     for i, t in enumerate(level['tests']):
         name = f'test {i + 1}'
         if 'stdout' in t:
+            if i > 0:
+                try:
+                    _, out = run_code(src, label, level, t)
+                except BaseException as e:  # noqa: BLE001
+                    fails.append(f'{name}: raised {type(e).__name__}: {e}')
+                    continue
             if norm_out(out) != norm_out(t['stdout']):
                 fails.append(f'{name}: printed {out!r}, expected {t["stdout"]!r}')
             continue
         if t.get('perf') and not perf:
             continue
         try:
-            with contextlib.redirect_stdout(io.StringIO()):
+            with world(level, t), contextlib.redirect_stdout(io.StringIO()):
                 if t.get('setup'):
                     exec(compile(t['setup'], f'{label}:{name}:setup', 'exec'), ns)
                 t0 = time.perf_counter()

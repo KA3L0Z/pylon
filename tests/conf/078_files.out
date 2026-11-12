@@ -1,0 +1,29 @@
+11 True
+'first line\nsecond line\nthird'
+['first line', 'second line', 'third']
+'first line\n'
+'second line\n'
+'third'
+''
+['first line\n', 'second line\n', 'third']
+1 first line
+2 second line
+3 third
+7
+'first' ' line\n' 'second line\n'
+35 ''
+True numbers.txt w
+14
+[0, 1, 4, 9]
+4 0
+FileNotFoundError: [Errno 2] No such file or directory: 'missing.txt'
+FileNotFoundError missing.txt
+ValueError: I/O operation on closed file.
+UnsupportedOperation not writable
+'0\n1\n4\n9\n'
+UnsupportedOperation not readable
+FileExistsError: [Errno 17] File exists: 'numbers.txt'
+'' [] ''
+[['north', '40'], ['south', '55']] {'north': 40, 'south': 55}
+ValueError: invalid mode: 'q'
+replaced True

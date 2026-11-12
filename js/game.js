@@ -74,21 +74,35 @@ function rankIndex() {
   for (const z of ZONES) { if (floorDone(z.n)) r++; else break; }
   return Math.max(r, S.rank0 || 0);                // a rank earned before the tower grew is kept
 }
-// The tower once had 6 floors and 48 levels, grouped the way the level ids still are. A save from then keeps its
-// rank under the title it had.
-function oldRank() {
+// The tower has grown twice, and a save from an earlier tower keeps its rank under the title it had.
+//   6 floors, 48 levels (a save with no cv): the floors were the id groups z1- to z6-.
+//   8 floors, 71 levels (cv 2): today's floors without the Signal Archive and without the z9- levels.
+const RANK_FROM_6 = [0, 1, 2, 4, 6, 7, 8], RANK_FROM_8 = [0, 1, 2, 3, 4, 6, 7, 8, 9];
+function rankIn6() {
   let r = 0;
   for (const prefix of ['z1-', 'z2-', 'z3-', 'z4-', 'z5-', 'z6-']) {
     const ls = LEVELS.filter(l => l.id.indexOf(prefix) === 0);
     if (ls.length && ls.every(l => isSolved(INDEX[l.id]))) r++; else break;
   }
-  return [0, 1, 2, 4, 5, 6, 7][r];
+  return r;
 }
+function rankIn8() {
+  let r = 0;
+  for (const z of ZONES) {
+    const ls = zoneLevels(z.n).filter(l => l.id.indexOf('z9-') !== 0);
+    if (!ls.length) continue;                      // a floor that did not exist yet
+    if (ls.every(l => isSolved(INDEX[l.id]))) r++; else break;
+  }
+  return r;
+}
+// The rank a save had earned in the tower it was made in, as an index into today's ranks.
+const rankFrom = (cv, rank0) => (cv === 3 ? rank0 || 0 : cv === 2 ? Math.max(RANK_FROM_8[rank0 || 0] || 0, RANK_FROM_8[rankIn8()]) : RANK_FROM_6[rankIn6()]);
 function migrate() {
-  if (S.cv === 2) return;
-  S.rank0 = Math.max(S.rank0 || 0, oldRank());
-  if (LEVELS.some((l, i) => isSolved(i))) S.grew = true;
-  S.cv = 2;
+  if (S.cv === 3) return;
+  const had = LEVELS.some((l, i) => isSolved(i));
+  S.rank0 = rankFrom(S.cv, S.rank0);
+  if (had) S.grew = S.cv === 2 ? 2 : 1;
+  S.cv = 3;
 }
 function nextIndex() { for (let i = 0; i < LEVELS.length; i++) if (!isSolved(i)) return i; return -1; }
 function xpFor(lv, stars) {
@@ -125,7 +139,7 @@ function mergeRemote(remote) {
     if (remote.rvDay) S.rvDay = remote.rvDay;
   }
   S.intro = S.intro || !!remote.intro;
-  S.rank0 = Math.max(S.rank0 || 0, remote.rank0 || 0, remote.cv === 2 ? 0 : oldRank());
+  S.rank0 = Math.max(S.rank0 || 0, rankFrom(remote.cv, remote.rank0));
   S.bonus = Math.max(S.bonus || 0, remote.bonus || 0);
   S.days = Array.from(new Set(S.days.concat(Array.isArray(remote.days) ? remote.days : []))).sort().slice(-400);
   if (Array.isArray(remote.ivLog) && remote.ivLog.length > S.ivLog.length) S.ivLog = remote.ivLog;
@@ -371,7 +385,7 @@ const BADGES = [
   { id: 'briefs', name: 'Well Briefed', desc: 'Read 20 briefings for the level ahead.', test: c => c.n('briefs') >= 20 },
   { id: 'craft1', name: 'Clean Code', desc: 'Earn all four craft marks on one level.', test: c => c.craft4 >= 1 },
   { id: 'craft10', name: 'Craftsman', desc: 'Earn all four craft marks on 10 levels.', test: c => c.craft4 >= 10 },
-  { id: 'senior', name: 'Senior Engineer', desc: 'Bring Floor 6 back online.', test: c => c.rank >= 6 },
+  { id: 'senior', name: 'Senior Engineer', desc: 'Bring Floor 7 back online.', test: c => c.rank >= 7 },
   { id: 'summit', name: 'Top of the Pylon', desc: 'Solve every level in the tower.', test: c => c.solved >= LEVELS.length },
 ];
 function checkBadges(silent) {
@@ -614,7 +628,7 @@ function addExamples(root, lv) {
     const code = pre.dataset.src;
     if (!code || code.indexOf('print(') < 0) return;
     let probe;
-    try { probe = Runner.runFree(code, 300000); } catch (e) { return; }
+    try { probe = Runner.runFree(code, 300000, { stdin: '', files: lv.lessonFiles || {} }); } catch (e) { return; }
     const want = probe.ok ? probe.output.replace(/\s+$/, '') : '', lines = want.split('\n').length;
     if (!want || lines > 6) return;
     const idx = k++, s = st(lv.id), bit = 1 << idx, box = document.createElement('div'), id = 'pd-' + idx;
@@ -690,12 +704,14 @@ function enter(lv, opts) {
   cmds.hidden = cur.kind !== 'robot';
   cmds.innerHTML = cur.kind === 'robot' ? '<span class="cmds-label">PIP understands</span>' + cur.commands.map(c => '<button type="button" class="cmd" data-cmd="' + esc(c) + '">' + esc(c) + '</button>').join('') : '';
   $('robot-ctl').hidden = cur.kind !== 'robot';
+  $('iobox').hidden = !lab;
+  if (lab) { $('lab-input').value = S.labIn || ''; $('iobox').open = !!S.labIn; }
   $('btn-trace').hidden = cur.kind === 'robot';
   $('btn-hint').hidden = lab || !normal;
   $('btn-mentor').hidden = !Mentor.ready || !normal;
   $('btn-forgot').hidden = play.mode !== 'review';
   editor.set(normal ? (s.code != null ? s.code : cur.starter) : iv && iv.codes[cur.id] != null ? iv.codes[cur.id] : cur.starter);
-  editor.setWords(cur.kind === 'robot' ? window.PylonComplete.robotWords(cur.commands) : lab ? LAB_WORDS : cur.zone >= 6 ? NODE_WORDS : []);
+  editor.setWords(cur.kind === 'robot' ? window.PylonComplete.robotWords(cur.commands) : lab ? LAB_WORDS : cur.zone >= 7 ? NODE_WORDS : []);
   $('results').innerHTML = '';
   $('mentor').hidden = true;
   $('stage-note').hidden = true;
@@ -809,11 +825,14 @@ function cardBody(card) {
   if (!card.code) return '';
   if (!cardOut.has(card)) {
     let r = null;
-    try { r = Runner.runFree(card.code, 300000); } catch (e) { r = null; }
+    try { r = Runner.runFree(card.code, 300000, { stdin: card.stdin || '', files: card.files || {} }); } catch (e) { r = null; }
     cardOut.set(card, r && r.ok ? r.output.replace(/\s+$/, '') : '');
   }
   const out = cardOut.get(card);
-  return '<pre class="code">' + window.PylonHighlight(card.code) + '</pre>' + (out ? '<div class="tc-out"><span>Prints</span><pre>' + esc(out) + '</pre></div>' : '');
+  // what the example is given: the files that exist for it, and the lines its input() calls read
+  const given = Object.keys(card.files || {}).map(name => '<div class="tc-out tc-in"><span>' + esc(name) + '</span><pre>' + esc(card.files[name].replace(/\n$/, '')) + '</pre></div>').join('') +
+    (card.stdin ? '<div class="tc-out tc-in"><span>Input</span><pre>' + esc(card.stdin.replace(/\n$/, '')) + '</pre></div>' : '');
+  return given + '<pre class="code">' + window.PylonHighlight(card.code) + '</pre>' + (out ? '<div class="tc-out"><span>Prints</span><pre>' + esc(out) + '</pre></div>' : '');
 }
 // One reference card. Closed, it shows the call and what it does; open, the example and what the example prints.
 function cardHtml(n, open) {
@@ -927,13 +946,17 @@ const CRAFT_HELP = '<details class="craft-help"><summary>What the marks mean</su
   '<li><b>Clear names</b> Names say what they hold. One letter is fine only for counters, sizes and coordinates (<code>i j k n m x y z r c a b</code>). No placeholders such as <code>tmp</code>, no name that hides a built-in such as <code>sum</code> or <code>list</code>, and <code>lower_case_with_underscores</code>.</li>' +
   '<li><b>Pythonic</b> Python\'s own way of saying it: <code>if items:</code> instead of <code>len(items) == 0</code>, <code>is None</code>, <code>total += 1</code>, returning a condition directly, looping over items instead of positions, no bare <code>except:</code>, nothing set and never used.</li>' +
   '<li><b>Tidy</b> Four spaces per level, a space around <code>=</code> and comparisons and after commas, no brackets around conditions, and no leftover <code>print()</code>, <code>pass</code> or commented-out code.</li></ul></details>';
-// Shown once to a player whose save is from the smaller tower.
+// Shown once to a player whose save is from a smaller tower: S.grew is 1 for the first tower (6 floors), 2 for the second (8).
 function showGrew() {
-  const added = LEVELS.filter(l => /^z[78]-/.test(l.id)).length;
-  modal('<div class="intro"><div class="eyebrow">The tower has grown</div><h2>' + ZONES.length + ' floors, ' + LEVELS.length + ' levels</h2>' +
-    '<p>Everything you solved is still solved, and your rank is kept. ' + added + ' new levels now stand among the ones you know: text tools, modules, error handling, debugging, recursion, inheritance, bit tricks, tries and more.</p>' +
-    '<p><b>Lessons come one level early.</b> Each level now ends with the briefing for the next one, and a level no longer says which tools it needs. Everything you have been shown is in the new <b>Tools</b> tab.</p>' +
-    '<p><b>Craft marks.</b> A passing answer can earn four more marks: concise, clear names, Pythonic and tidy. Each one is worth extra XP.</p>' +
+  const again = S.grew === 2, added = LEVELS.filter(l => (again ? /^z9-/ : /^z[789]-/).test(l.id)).length;
+  const archive = ZONES.find(z => z.name === 'Signal Archive'), where = archive ? 'floor ' + archive.n + ', the Signal Archive' : 'a new floor';
+  modal('<div class="intro"><div class="eyebrow">The tower has grown' + (again ? ' again' : '') + '</div><h2>' + ZONES.length + ' floors, ' + LEVELS.length + ' levels</h2>' +
+    (again
+      ? '<p>Everything you solved is still solved, and your rank is kept. There are ' + added + ' new levels: one about <code>input()</code> on floor 2, and ' + where + ', about files and regular expressions. The floors above it moved up by one number.</p>' +
+        '<p>The Scratchpad now has an <b>Input</b> box for programs that call <code>input()</code>, and your programs can read and write files.</p>'
+      : '<p>Everything you solved is still solved, and your rank is kept. ' + added + ' new levels now stand among the ones you know: input, text tools, modules, error handling, debugging, files, regular expressions, recursion, inheritance, bit tricks, tries and more.</p>' +
+        '<p><b>Lessons come one level early.</b> Each level now ends with the briefing for the next one, and a level no longer says which tools it needs. Everything you have been shown is in the new <b>Tools</b> tab.</p>' +
+        '<p><b>Craft marks.</b> A passing answer can earn four more marks: concise, clear names, Pythonic and tidy. Each one is worth extra XP.</p>') +
     '<div class="done-actions"><button type="button" class="btn primary" data-focus id="grew-go">Show me the first new level</button><button type="button" class="btn ghost" id="grew-close">Later</button></div></div>',
   { onClose: () => { if (S.grew) { S.grew = false; save(); } } });
 }
@@ -1003,8 +1026,10 @@ function errorCard(error, line, lead) {
 }
 function testRow(t, brief, helped) {
   if (t.stdout) {
-    if (t.ok) return '<li class="ok"><span class="t-mark">✓</span><div>The printed text matches exactly.</div></li>';
-    return '<li class="bad"><span class="t-mark">✗</span><div>The printed text does not match.<div class="t-detail"><span>Expected</span><pre>' + esc(t.expect) + '</pre><span>Your program printed</span><pre>' + (t.got ? esc(clip(t.got, 1200)) : '(nothing)') + '</pre></div></div></li>';
+    const given = t.stdin ? '<span>Input</span><pre>' + esc(clip(t.stdin.replace(/\n$/, ''), 400)) + '</pre>' : '', step = t.stdin ? ' <button type="button" class="linkbtn" data-trace="' + t.index + '">Step through this run</button>' : '';
+    if (t.ok) return '<li class="ok"><span class="t-mark">✓</span><div>The printed text matches exactly.' + (given ? '<div class="t-detail">' + given + '</div>' : '') + '</div></li>';
+    if (t.error) return '<li class="bad"><span class="t-mark">✗</span><div>The program stopped with an error.<div class="t-detail">' + given + '<b>' + esc(t.error.type) + (t.errorLine ? ' on line ' + t.errorLine : '') + ':</b> ' + esc(t.error.message) + (t.error.hint ? ' <i>' + esc(t.error.hint) + '</i>' : '') + step + '</div></div></li>';
+    return '<li class="bad"><span class="t-mark">✗</span><div>The printed text does not match.<div class="t-detail">' + given + '<span>Expected</span><pre>' + esc(t.expect) + '</pre><span>Your program printed</span><pre>' + (t.got ? esc(clip(t.got, 1200)) : '(nothing)') + '</pre>' + step + '</div></div></li>';
   }
   let meta = '', detail = '';
   if (t.perf && t.ok) meta = '<span class="t-meta">speed test · ' + num(t.steps) + ' of ' + num(t.budget) + ' steps</span>';
@@ -1018,6 +1043,8 @@ function testRow(t, brief, helped) {
     else if (t.error) detail = '<b>' + esc(t.error.type) + (t.errorLine ? ' on line ' + t.errorLine : '') + ':</b> ' + esc(t.error.message) + (!firstOfKind ? '' : t.error.hint ? ' <i>' + esc(t.error.hint) + '</i>' : HELP[t.error.type] ? ' <i>' + esc(HELP[t.error.type]) + '</i>' : '');
     else detail = 'Expected <code>' + esc(t.expect) + '</code><br>Your code returned <code>' + esc(t.got) + '</code>';
   }
+  // a test that hands the program files shows them when it fails, so the player can see what was read
+  if (!t.ok && !brief && t.files) detail += Object.keys(t.files).slice(0, 3).map(name => '<details class="t-file"><summary>' + esc(name) + '</summary><pre>' + (t.files[name] ? esc(clip(t.files[name].replace(/\n$/, ''), 900)) : '(empty)') + '</pre></details>').join('');
   const stepBtn = !t.ok && !t.perf ? ' <button type="button" class="linkbtn" data-trace="' + t.index + '">Step through this test</button>' : '';
   return '<li class="' + (t.ok ? 'ok' : t.slow ? 'slow' : 'bad') + '"><span class="t-mark">' + (t.ok ? '✓' : t.slow ? '◷' : '✗') + '</span><div><code class="t-call">' + esc(t.show) + '</code>' + meta + (detail ? '<div class="t-detail">' + detail + stepBtn + '</div>' : '') + '</div></li>';
 }
@@ -1051,8 +1078,15 @@ function renderRobotResults(res) {
   else if (r) h = '<div class="sum bad">' + (r.crashed ? 'PIP stopped' : 'Not there yet') + '</div><p>' + esc(r.reason) + (r.errorLine ? ' Look at line ' + r.errorLine + '.' : '') + (n > 1 ? ' <span class="mute">Deck ' + (r.map + 1) + ' of ' + n + '.</span>' : '') + '</p>';
   $('results').innerHTML = h + outputBlock(res.output);
 }
+// What the Scratchpad hands a program: the lines typed into its Input box. Echo makes the output read like a terminal.
+const labIo = () => ({ stdin: $('lab-input').value, files: {}, echo: true });
 function renderLabResults(res) {
-  $('results').innerHTML = (res.error ? errorCard(res.error, res.errorLine) : '<div class="sum ok">Ran in ' + num(res.steps) + ' steps</div>') + outputBlock(res.output, !res.error);
+  const starved = res.error && res.error.type === 'EOFError';
+  let h = (res.error ? errorCard(res.error, res.errorLine) : '<div class="sum ok">Ran in ' + num(res.steps) + ' steps</div>');
+  if (starved) { $('iobox').open = true; h += '<p class="mute">Type the lines your program should read into the <b>Input</b> box under the editor, one line for each <code>input()</code> call, and run again.</p>'; }
+  h += outputBlock(res.output, !res.error);
+  for (const pair of (res.files || []).slice(0, 4)) h += '<details class="out" open><summary>File · ' + esc(pair[0]) + '</summary><pre>' + (pair[1] ? esc(clip(pair[1], 3000)) : '(empty)') + '</pre></details>';
+  $('results').innerHTML = h;
 }
 const nextPaint = () => new Promise(r => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 120); });
 async function run() {
@@ -1073,7 +1107,8 @@ async function run() {
   setStatus('Running…');
   await nextPaint();
   let res;
-  try { res = Runner.run(lv, code); }
+  if (lv.kind === 'sandbox') { S.labIn = $('lab-input').value; if (/\binput\s*\(/.test(code)) $('iobox').open = true; }
+  try { res = Runner.run(lv, code, lv.kind === 'sandbox' ? { io: labIo() } : undefined); }
   catch (e) { res = { kind: lv.kind, ok: false, error: { type: 'InternalError', message: String((e && e.message) || e), trace: [] }, errorLine: null, tests: [], runs: [], output: '' }; }
   if (cur !== lv) { busy = false; return; }
   lastRes = res;
@@ -1206,7 +1241,7 @@ function startTrace(testIndex) {
   editor.markError(null);
   if (coarse && document.activeElement === editor.el) editor.el.blur();
   let t;
-  try { t = Runner.traceRun(cur, editor.value, traceTest); }
+  try { t = Runner.traceRun(cur, editor.value, traceTest, cur.kind === 'sandbox' ? labIo() : undefined); }
   catch (e) { t = { ok: false, steps: [], start: 0, truncated: false, label: '', result: null, expect: null, output: '', errorLine: null, error: { type: 'InternalError', message: String((e && e.message) || e) } }; }
   trace = t; traceI = t.start < t.steps.length ? t.start || 0 : 0;
   traceRel = relations(editor.value);
@@ -1408,9 +1443,9 @@ const Mentor = (() => {
 
 // ---------------------------------------------------------------- dialogs
 function showIntro() {
-  modal('<div class="intro"><div class="eyebrow">Signal tower · eight floors · one drone</div><h2>The Pylon has been dark for years.</h2>' +
+  modal('<div class="intro"><div class="eyebrow">Signal tower · nine floors · one drone</div><h2>The Pylon has been dark for years.</h2>' +
     '<p>You are the new engineer. PIP, the maintenance drone, does exactly what your Python tells it to do, no more and no less.</p>' +
-    '<p>Each platform on the tower is a problem to solve with real code, from <code>move()</code> on the Boot Deck to the classic interview problems near the top. Bring a whole floor back online and you are promoted. Floor 6 makes you a Senior Engineer.</p>' +
+    '<p>Each platform on the tower is a problem to solve with real code, from <code>move()</code> on the Boot Deck to the classic interview problems near the top. Bring a whole floor back online and you are promoted. Floor 7 makes you a Senior Engineer.</p>' +
     '<div class="done-actions"><button type="button" class="btn primary" data-focus id="intro-start">Start on the Boot Deck</button><button type="button" class="btn ghost" id="intro-skip">I already know some Python</button></div></div>',
   { onClose: () => { if (!S.intro) { S.intro = true; save(); } } });
 }
@@ -1563,7 +1598,7 @@ function bind() {
       case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge, review date and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
         const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx };
         clearInterval(ivTimer);
-        S = Object.assign({ v: 1, cv: 2, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], t: 0 }, keep);
+        S = Object.assign({ v: 1, cv: 3, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], t: 0 }, keep);
         save(); if (mode === 'level') closeLevel(); selectLevel(0, true); refreshProgress(); toast('Progress erased.');
       }); break;
       case 'intro-start': closeModal(); selectLevel(0); break;

@@ -201,30 +201,38 @@ levels.forEach(lv => {
     if ((card.what + (card.code || '')).indexOf(String.fromCharCode(96)) >= 0) errors.push(where + ': no backticks');
     if (!card.code) return;                       // a card about a habit or a button has nothing to run
     let r;
-    try { r = Runner.runFree(card.code, 300000); } catch (e) { r = { ok: false, output: '', error: { type: 'CRASH', message: String(e) } }; }
+    try { r = Runner.runFree(card.code, 300000, { stdin: card.stdin || '', files: card.files || {} }); } catch (e) { r = { ok: false, output: '', error: { type: 'CRASH', message: String(e) } }; }
     if (!r.ok) { errors.push(where + ': the example fails in MiniPy: ' + (r.error ? r.error.type + ': ' + r.error.message : '?')); return; }
     if (!r.output.trim()) { errors.push(where + ': the example prints nothing'); return; }
     if (r.output.trim().split('\n').length > 8) warnings.push(where + ': the example prints ' + r.output.trim().split('\n').length + ' lines');
-    snippets.push({ where, code: card.code, out: r.output });
+    snippets.push({ where, code: card.code, out: r.output, stdin: card.stdin || '', files: card.files || {} });
   });
   if (lv.kind !== 'code') return;
   examples(lv.lesson).forEach((code, k) => {
     if (code.indexOf('print(') < 0) return;
     let r;
-    try { r = Runner.runFree(code, 300000); } catch (e) { return; }
-    if (r.ok && r.output.trim()) snippets.push({ where: lv.id + ' lesson example ' + (k + 1), code, out: r.output });
+    try { r = Runner.runFree(code, 300000, { stdin: '', files: lv.lessonFiles || {} }); } catch (e) { return; }
+    if (r.ok && r.output.trim()) snippets.push({ where: lv.id + ' lesson example ' + (k + 1), code, out: r.output, stdin: '', files: lv.lessonFiles || {} });
   });
 });
 if (!noPy && snippets.length) {
   const file = path.join(os.tmpdir(), 'pylon-cards-' + process.pid + '.json');
-  fs.writeFileSync(file, JSON.stringify({ prelude, snippets: snippets.map(s => s.code) }));
+  fs.writeFileSync(file, JSON.stringify({ prelude, snippets: snippets.map(s => ({ code: s.code, stdin: s.stdin || '', files: s.files || {} })) }));
   const PY = [
-    'import sys, json, io, contextlib',
+    'import sys, json, io, os, contextlib, tempfile',
     'data = json.load(open(sys.argv[1], encoding="utf8"))',
     'outs = []',
-    'for code in data["snippets"]:',
+    'home = os.getcwd()',
+    'for item in data["snippets"]:',
+    '    code = item["code"]',
     '    space = {"__name__": "__main__"}',
     '    buf = io.StringIO()',
+    '    work = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)',
+    '    os.chdir(work.name)',
+    '    for name, text in item["files"].items():',
+    '        with open(name, "w", encoding="utf8", newline="\\n") as handle:',
+    '            handle.write(text)',
+    '    sys.stdin = io.StringIO(item["stdin"])',
     '    try:',
     '        exec(data["prelude"], space)',
     '        with contextlib.redirect_stdout(buf):',
@@ -232,6 +240,9 @@ if (!noPy && snippets.length) {
     '        outs.append({"ok": True, "out": buf.getvalue()})',
     '    except Exception as error:',
     '        outs.append({"ok": False, "out": buf.getvalue(), "error": type(error).__name__ + ": " + str(error)})',
+    '    space.clear()',
+    '    os.chdir(home)',
+    '    work.cleanup()',
     'sys.stdout.write(json.dumps(outs))',
   ].join('\n');
   const run = cp.spawnSync('python', ['-c', PY, file], { encoding: 'utf8', maxBuffer: 1 << 26 });

@@ -1,0 +1,37 @@
+<re.Match object; span=(6, 7), match='7'>
+7
+None
+True None
+Relay
+True None
+['7', '42', '2099', '03', '14', '12', '3']
+['7', '12']
+[('Relay', '7'), ('reported', '42'), ('on', '2099'), ('relay', '12'), ('reported', '3')]
+[] ['', '', '']
+2099-03-14 2099 ('03', '14') ('2099', '03', '14')
+30 40 (30, 40) (35, 37) 38
+2099-03-14 2099 True (\d{4})-(\d{2})-(\d{2}) 0 3
+2099 03 {'year': '2099', 'month': '03'} month
+<re.Match object; span=(30, 37), match='2099-03'>
+('a', None, 'c') ('a', '-', 'c') None (-1, -1) 3
+alpha (0, 5)
+beta (6, 10)
+gamma (12, 17)
+[1, 3, 5]
+ll ['l', 'o', 'e'] (\w)\1 1
+oo (0, 2) None ll
+re.compile('(\\w)\\1') {'a': 1, 'b': 2}
+True False
+color grey
+['three', 'words', 'apart', 'hello', 'again']
+['r', 'g', 'l', 'r', 'xpr', 'ss', 'ns']
+['3.14', '42', '5']
+['aa', 'aaa', 'aaa'] ['b', 'ab', 'aab', 'aab'] ['a'] ['<a>', '<b>']
+True None True
+['one'] ['one', 'three'] ['two', 'four']
+['abc'] ['abc', 'a\nc'] ['Pip', 'PIP', 'pip']
+abc123 ['hey', 'there']
+['tag', 'more'] ['cat', 'hat']
+['ada@tower.org', 'pip@deck.net'] [']x]'] ['a-z']
+['ababab', 'ab'] ['ab', 'ab'] [('a', ''), ('', 'b')]
+('12', 'kg') 3 (0, 0)

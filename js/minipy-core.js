@@ -95,7 +95,8 @@ mkExcClass('BaseException', T.object);
   ['RecursionError', 'RuntimeError'], ['NotImplementedError', 'RuntimeError'], ['TypeError', 'Exception'], ['ValueError', 'Exception'],
   ['StopIteration', 'Exception'], ['ImportError', 'Exception'], ['ModuleNotFoundError', 'ImportError'], ['SyntaxError', 'Exception'],
   ['IndentationError', 'SyntaxError'], ['TabError', 'IndentationError'], ['MemoryError', 'Exception'], ['OSError', 'Exception'],
-  ['EOFError', 'Exception'], ['Warning', 'Exception']].forEach(p => mkExcClass(p[0], EXC[p[1]]));
+  ['EOFError', 'Exception'], ['Warning', 'Exception'], ['FileNotFoundError', 'OSError'], ['FileExistsError', 'OSError'],
+  ['PermissionError', 'OSError'], ['IsADirectoryError', 'OSError']].forEach(p => mkExcClass(p[0], EXC[p[1]]));
 
 function mkExc(cls, args) { const o = new PyObj(cls); o.d.args = new PyTuple(args); if (cls === EXC.StopIteration) o.d.value = args.length ? args[0] : null; return o; }
 class PyErr { constructor(exc) { this.exc = exc; this.line = R.line; this.trace = R.calls.slice(); this.hint = null; } }

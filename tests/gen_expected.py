@@ -23,6 +23,7 @@ Usage (from anywhere):
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -35,15 +36,20 @@ ADDRESS = re.compile(r" at 0x[0-9A-Fa-f]+")
 def run_once(path):
     """Run one program. Return (stdout_text, None) or (None, error_message)."""
     cmd = [sys.executable, "-X", "utf8", "-I", str(path)]
+    # A program that calls input() has its lines next to it, in NNN_topic.in. Every program runs in an empty
+    # directory of its own, so the files it writes never land in the repository.
+    lines = path.with_suffix(".in")
+    feed = {"input": lines.read_bytes()} if lines.exists() else {"stdin": subprocess.DEVNULL}
     try:
-        proc = subprocess.run(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=str(CONF_DIR),
-            timeout=TIMEOUT_SECONDS,
-        )
+        with tempfile.TemporaryDirectory() as work:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=work,
+                timeout=TIMEOUT_SECONDS,
+                **feed
+            )
     except subprocess.TimeoutExpired:
         return None, "timed out after %d s" % TIMEOUT_SECONDS
     stderr = proc.stderr.decode("utf-8", "replace").replace("\r\n", "\n").strip()

@@ -1,0 +1,10 @@
+Hello, Ada
+42
+Mode? 
+FAST
+['3', '4', '5'] 3
+4.0
+''
+'  padded line' 'padded line'
+more? 
+EOFError: EOF when reading a line

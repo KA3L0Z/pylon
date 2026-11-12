@@ -536,6 +536,17 @@ button.tc-head:hover::after { color: var(--accent); }
 .tools-floor h3 { display: flex; align-items: baseline; gap: 10px; font-size: 17px; margin: 20px 0 10px; }
 .tools-floor h3 small { font: 500 13px/1 var(--mono); letter-spacing: 0; color: var(--mute); }
 
+/* input and files */
+.iobox { flex: none; margin: 8px 0 0; border: 1px solid var(--line); border-radius: 4px; background: var(--deck-2); }
+.iobox summary { padding: 9px 12px; font: 600 13px/1.2 var(--display); letter-spacing: .15em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; }
+.iobox summary span { margin-left: 8px; font: 400 13px/1.2 var(--body); letter-spacing: 0; text-transform: none; color: var(--mute); }
+.iobox textarea { display: block; width: calc(100% - 20px); margin: 0 10px 10px; min-height: 64px; font: 400 14px/1.55 var(--mono); color: var(--ink); background: #060916; border: 1px solid var(--line-2); border-radius: 3px; padding: 8px 10px; resize: vertical; }
+.iobox textarea:focus { outline: none; border-color: var(--accent); }
+.tc-in { margin: 0 0 6px; border-left-color: var(--amber); }
+.t-file { margin-top: 6px; }
+.t-file summary { font: 600 12px/1.3 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); cursor: pointer; }
+.t-file pre { margin: 6px 0 0; }
+
 /* craft marks */
 .craft { margin: 12px 0 10px; padding: 12px 14px; background: var(--deck-2); border: 1px solid var(--line-2); border-radius: 4px; }
 .craft-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 10px; }
@@ -640,6 +651,7 @@ button.tc-head:hover::after { color: var(--accent); }
         <button type="button" data-ins="{">{</button><button type="button" data-ins="}">}</button>
         <button type="button" data-ins="'">'</button><button type="button" data-ins="#">#</button><button type="button" data-ins="<">&lt;</button><button type="button" data-ins=">">&gt;</button>
       </div>
+      <details class="iobox" id="iobox" hidden><summary>Input <span>what the program reads with input()</span></summary><textarea id="lab-input" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="One line for each input() call" aria-label="Lines of input for the program"></textarea></details>
       <div class="runbar">
         <button type="button" class="btn primary" id="btn-run">Run <kbd>Ctrl ↵</kbd></button>
         <button type="button" class="btn" id="btn-trace" aria-pressed="false">Step<span class="w"> through</span></button>
@@ -661,13 +673,13 @@ button.tc-head:hover::after { color: var(--accent); }
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="js/minipy-core.js?v=a9c1d645"></script>
+<script src="js/minipy-core.js?v=daab12d8"></script>
 <script src="js/minipy-parse.js?v=7eddbc9d"></script>
 <script src="js/minipy-compile.js?v=9cd9a387"></script>
-<script src="js/minipy-lib.js?v=a51ff40f"></script>
-<script src="js/minipy-mods.js?v=bf184158"></script>
+<script src="js/minipy-lib.js?v=023ffa9e"></script>
+<script src="js/minipy-mods.js?v=40a94720"></script>
 <script src="js/prelude.js?v=779f9a85"></script>
-<script src="js/runner.js?v=d1e25215"></script>
+<script src="js/runner.js?v=9611516f"></script>
 <script src="js/craft.js?v=146d8100"></script>
 <script src="js/levels-z1.js?v=f2c34aa6"></script>
 <script src="js/levels-z2.js?v=44902b50"></script>
@@ -677,11 +689,12 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/levels-z6.js?v=3ed1a65c"></script>
 <script src="js/levels-z7.js?v=f8f55e5c"></script>
 <script src="js/levels-z8.js?v=be4b774f"></script>
+<script src="js/levels-z9.js?v=0e276f5f"></script>
 <script src="js/toolcards.js?v=bbd2f717"></script>
-<script src="js/curriculum.js?v=2d336f49"></script>
-<script src="js/complete.js?v=cbb599fb"></script>
+<script src="js/curriculum.js?v=9c74b978"></script>
+<script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
 <script src="js/world.js?v=27e27743"></script>
-<script src="js/game.js?v=893e7ade"></script>
+<script src="js/game.js?v=c7add6fd"></script>
 </body>
 </html>
