@@ -204,7 +204,7 @@ with open("out.txt") as out:
       ],
       task: py`
 <p>At the end of a shift the readings are filed as a report.</p>
-<p>Write <code>save_report(path, readings)</code>. <code>readings</code> is a list of pairs, a name and a whole number. Write the file <code>path</code> with one line per reading, in the form <code>name: number</code>, and then one last line with the sum of the numbers, <code>total: sum</code>. Return how many lines you wrote.</p>
+<p>Write <code>save_report(path, readings)</code>. <code>readings</code> is a list of pairs, a name and a whole number. Write the file <code>path</code> with one line per reading, in the form <code>name: number</code> (the name, a colon, one space, the number), and then one last line with the sum of the numbers, <code>total: sum</code>. Return how many lines you wrote.</p>
 <pre><code>save_report("report.txt", [("north", 40), ("south", 55)])    # returns 3</code></pre>
 <p>After that call, <code>report.txt</code> holds exactly this, with a line break after every line:</p>
 <pre><code>north: 40

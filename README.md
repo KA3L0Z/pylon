@@ -17,6 +17,7 @@ Pylon is a free browser game that teaches Python, from the first function call t
 - **Real Python, inside the page.** Your code runs on MiniPy, an interpreter for a subset of Python written for this game. Your code never leaves the browser.
 - **Input, files and regular expressions.** `input()` reads the lines a test hands the program, or the ones you type into the Scratchpad's Input box. `open()` works on files that live in memory, and the `re` module is there for patterns.
 - **Every code level has a scene, and your code drives it.** One of the level's tests stands in the arena: power cells in front of a gate, a bridge with a plank for each bracket, a bar for each day's price, a grid of powered tiles, a chain, a tree, a wall for what a program prints. When you run your code, PIP acts out what it returned. The right two cells open the gate and the wrong two jam it. Answer `True` where the answer is `False` and the bridge gives way under PIP. There are ten kinds of scene, and two levels in a row never use the same one. A caption under the scene says what went wrong in that test's own terms, and a row of footlights gives the verdict on every test.
+- **A terminal.** Under the Run button, every run is written down the way Python's own prompt would show it: each test call after `>>>`, what the code printed, the value it returned, and the full traceback with the line of your file when it raises. Type a line of your own at the prompt to call your functions with any input; names and values stay between lines.
 - **Step through, with a picture of your data.** Replay any test one line at a time. Lists are drawn as rows of cells with the index variables pointing into them, dictionaries as pairs, linked lists as chains of nodes, and whatever changed is lit. In the 3D view the same picture floats above the scene as crates.
 - **A story.** The last chief engineer left one log entry on every floor, about the habit that floor teaches and why the tower went dark. An entry is recovered when its floor comes back online, and the summit has an ending. PIP, the drone, comments along the way, and every rank unlocks a new paint for it. Each floor's arena has a look of its own.
 - **An editor that helps.** Suggestions while you type, each with a one-line reminder of what the function or method does, and syntax problems flagged before you run.
@@ -98,6 +99,7 @@ Then open http://localhost:8000/.
 | `js/story.js` | The tower log, the ending, and everything PIP says |
 | `js/complete.js` | What the editor suggests at the caret, and the one-line reminders |
 | `js/editor.js` | The code editor |
+| `js/terminal.js` | The terminal, as plain logic: a run written as a transcript, tracebacks in Python's layout, and when a typed block is finished |
 | `js/scenes.js` | The scenes of the code levels, as plain logic with no graphics in it: what stands on the stage for a test, and the beats to play for what the code returned |
 | `js/world.js` | The 3D tower and arenas (three.js): image-based reflections, soft shadows, bloom, filmic tone mapping, the pieces and beats of a scene, and the player's data as crates |
 | `js/score.js` | The score: themes, harmony, the instruments (all synthesized with Web Audio, no samples) and the mix that follows the game |
@@ -132,6 +134,7 @@ The icons are drawn by `node tools/make_icons.js`, with no image library.
     node tools/check_curriculum.js    # the course as a whole, in the order the player meets it
     node tools/check_bughunt.js       # a bug can be planted in nearly every code level, and the tests catch it
     node tools/check_scenes.js        # every code level has a scene: right answers play to a good end, wrong ones do not
+    node tools/check_terminal.js      # the terminal writes every level down, and its prompt answers as Python's does
 
 `check_curriculum.js` enforces the teaching rules. Every function, method and piece of syntax a model solution uses must have a reference card on that level or an earlier one. Every card example and lesson example (301 of them) must print the same thing in MiniPy and in CPython. Every model solution must earn all four craft marks, and a set of deliberately sloppy snippets must lose the right ones.
 

@@ -101,6 +101,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await until(() => document.getElementById('app').classList.contains('mode-level'));
     await skipTour(true);
     await page.evaluate(() => { const low = document.querySelector('#robot-ctl [data-speed="4"]'); if (low) low.click(); });
+    // the command buttons write one command per line (two clicks once gave "move()move()" and a syntax error)
+    await setCode('');
+    await click('#cmds .cmd'); await click('#cmds .cmd');
+    expect((await getCode()).trim().split('\n').map(l => l.trim()).join('|') === 'move()|move()','two clicks on a command button did not give two lines: ' + JSON.stringify(await getCode()));
     await setCode(levels[0].solution);
     expect(await run() === 'Solved', 'the model solution of the first level did not pass');
     await seen('#modal-body .done');
@@ -140,6 +144,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     expect(await run() === 'Not yet', 'a wrong answer was accepted');
     expect(/of \d+ tests passed/i.test(await text('#results')), 'the failing tests are not listed');
     if (world) { const c = await caption(); expect(c.kind === 'bad' && c.text.length > 10, 'the scene says nothing about the wrong answer'); }
+    // the terminal wrote the run down, and answers a line typed at its prompt
+    expect(/python -i main.py/.test(await text('#term-out')) && /# expected/.test(await text('#term-out')), 'the terminal did not write the failing run down');
+    await page.evaluate(() => { const i = document.getElementById('term-in'); i.value = '6 * 7'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    await sleep(200);
+    expect((await text('#term-out')).split('\n').map(l => l.trim()).filter(Boolean).slice(-2).join('|') === '6 * 7|42','the terminal prompt did not answer 6 * 7 with 42: ' + (await text('#term-out')).slice(-80));
     await click('#btn-trace');
     await seen('#trace');
     expect(/\d+\s*\/\s*\d+/.test(await text('#tr-pos')), 'the step-by-step view shows no step counter');

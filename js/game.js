@@ -13,7 +13,7 @@ const Runner = window.PylonRunner, RealWorld = window.PylonWorld || { ok: false 
 const World = new Proxy({}, { get: (_, k) => (RealWorld.ok && typeof RealWorld[k] === 'function') ? RealWorld[k] : (/^play/.test(k) ? () => Promise.resolve(true) : () => undefined) });
 
 // The floors and the order of the levels come from js/curriculum.js; the level files only describe the levels.
-const Curriculum = window.PylonCurriculum, Craft = window.PylonCraft || null, Scenes = window.PylonScenes || null;
+const Curriculum = window.PylonCurriculum, Craft = window.PylonCraft || null, Scenes = window.PylonScenes || null, Terminal = window.PylonTerminal || null;
 const ZONES = Curriculum.FLOORS.map((f, k) => ({ n: k + 1, name: f.name, color: f.color, title: f.title, blurb: f.blurb }));
 const LAB = { n: 0, name: 'Scratchpad', color: '#2ee6c8' };
 const RANKS = ['Amateur'].concat(ZONES.map(z => z.title));
@@ -738,7 +738,7 @@ function renderFloors() {
     if (!ls.length) return '';
     const open = isUnlocked(INDEX[ls[0].id]);
     return '<button type="button" class="floor' + (z.n === curZone ? ' on' : '') + (open ? '' : ' locked') + '" data-zone="' + z.n + '" style="--zc:' + z.color + '" aria-label="Floor ' + z.n + ', ' + esc(z.name) + '">' +
-      '<span class="f-n">' + z.n + '</span><span class="f-name">' + esc(z.name) + '</span><span class="f-dots" aria-hidden="true">' +
+      '<span class="f-n">' + z.n + '</span><span class="f-name">' + esc(z.name) + ' <small>' + ls.filter(l => isSolved(INDEX[l.id])).length + '/' + ls.length + '</small></span><span class="f-dots" aria-hidden="true">' +
       ls.map(l => '<i class="' + (isSolved(INDEX[l.id]) ? 'd' : '') + '"></i>').join('') + '</span></button>';
   }).join('');
 }
@@ -809,6 +809,72 @@ function addExamples(root, lv) {
     pre.after(box);
   });
 }
+// The terminal under the Run bar: the last run written down as Python's prompt would show it, and a prompt of its own.
+const Term = (() => {
+  let live = null, liveCode = null, liveLv = null, buffer = [], past = [], at = 0;
+  const PS = { sh: '$', in: '>>>', more: '...' };
+  const row = l => '<div class="tl tl-' + l.k + (l.ok === true ? ' ok' : l.ok === false ? ' bad' : '') + '">' + (PS[l.k] ? '<i>' + PS[l.k] + '</i>' : '') + '<span>' + (esc(l.t) || ' ') + '</span></div>';
+  const box = () => $('term-out');
+  function add(lines, fresh) {
+    const el = box();
+    if (fresh) el.innerHTML = '';
+    el.insertAdjacentHTML('beforeend', lines.map(row).join(''));
+    while (el.childElementCount > 400) el.firstElementChild.remove();
+  }
+  const bottom = () => { const el = box(); el.scrollTop = el.scrollHeight; };
+  const prompt = () => { $('term-ps').textContent = buffer.length ? '...' : '>>>'; };
+  return {
+    // A level opens: an empty terminal that says what it is for.
+    reset(lv) {
+      live = null; buffer = []; prompt();
+      $('term').hidden = !Terminal || !lv;
+      if (!Terminal || !lv) return;
+      $('term-row').hidden = lv.kind === 'robot';
+      add([{ k: 'note', t: lv.kind === 'robot' ? '# Run your program: what it prints and any error show up here.' : '# Run your code: what it prints and what each call returns show up here. Then try lines of your own below.' }], true);
+    },
+    // A run has finished: write it down, and bring the first thing that went wrong into view.
+    show(lv, res, code) {
+      if (!Terminal) return;
+      live = null; buffer = []; prompt();
+      add(Terminal.transcript(lv, res, code), true);
+      const el = box(), bad = el.querySelector('.tl.bad, .tl-err');
+      if (bad) el.scrollTop = Math.max(0, bad.offsetTop - el.offsetTop - 28); else bottom();
+    },
+    // A line typed at the prompt. The session is made from the code as it is in the editor now.
+    enter(text) {
+      if (!Terminal || !cur || cur.kind === 'robot') return;
+      if (!buffer.length && text.trim() === 'clear') { add([], true); return; }
+      if (!buffer.length && !text.trim()) { add([{ k: 'in', t: '' }]); bottom(); return; }
+      add([{ k: buffer.length ? 'more' : 'in', t: text }]);
+      buffer.push(text);
+      if (text.trim()) { past = past.filter(p => p !== text).concat([text]).slice(-50); at = past.length; }
+      if (Terminal.pending(buffer)) { prompt(); bottom(); return; }
+      const src = buffer.join('\n').replace(/\s+$/, ''), code = editor.value;
+      buffer = []; prompt();
+      if (!live || liveCode !== code || liveLv !== cur) {
+        const again = !!live;
+        try { live = Runner.repl(cur, code, cur.kind === 'sandbox' ? labIo() : undefined); } catch (e) { live = null; add([{ k: 'err', t: 'The terminal could not start: ' + ((e && e.message) || e) }]); bottom(); return; }
+        liveCode = code; liveLv = cur;
+        if (again) add([{ k: 'note', t: '# your code changed: main.py was loaded again' }]);
+        if (live.error) { add(Terminal.reply({ output: live.output, error: live.error }, code)); add([{ k: 'note', t: '# main.py stopped with this error, so its names may be missing' }]); }
+      }
+      let r;
+      try { r = live.line(src); } catch (e) { r = { error: { internal: true, message: String((e && e.message) || e) } }; }
+      add(Terminal.reply(r, code));
+      bottom();
+      bump('term');
+    },
+    key(e) {
+      const inp = $('term-in');
+      if (e.key === 'Enter') { e.preventDefault(); const text = inp.value; inp.value = ''; Term.enter(text); }
+      else if (e.key === 'ArrowUp' && past.length) { e.preventDefault(); at = Math.max(0, at - 1); inp.value = past[at]; }
+      else if (e.key === 'ArrowDown' && past.length) { e.preventDefault(); at = Math.min(past.length, at + 1); inp.value = past[at] || ''; }
+      else if (e.key === 'Escape') { buffer = []; prompt(); inp.value = ''; }
+      e.stopPropagation();
+    },
+  };
+})();
+$('term-in').addEventListener('keydown', Term.key);
 let shownMap = 0, staged = null;                     // staged: the scene a code level is showing (js/scenes.js), or null
 const sceneMeta = lv => { const z = zoneOf(lv); return { color: z.color, floor: z.n, boss: !!lv.boss, tests: lv.tests.length, perf: lv.tests.map(t => !!t.perf) }; };
 // The caption under a scene: the call that is on stage, and a line about what is happening there.
@@ -905,6 +971,7 @@ function enter(lv, opts) {
   renderHints(); renderSolution(); renderPanelStars(); updateLineCount();
   showTab(!normal || lab || cur.kind === 'code' || s.read || s.solved || s.tries ? 'code' : 'lesson');
   buildArena();
+  Term.reset(cur);
   hush();
   greet(cur);
   Tour.maybe(cur);
@@ -1156,7 +1223,9 @@ function showGrew() {
 function renderHints() {
   if (!cur || play.mode !== 'normal') { $('hints').innerHTML = ''; return; }
   const s = st(cur.id), total = cur.hints.length, left = total - s.hints;
-  $('btn-hint').textContent = left > 0 ? 'Hint (' + left + ' left)' : 'No hints left';
+  const costs = left > 0 && !s.hints && !s.mentor && !s.saw && !s.solved;          // the first help on a level is what costs the third star
+  $('btn-hint').textContent = left > 0 ? (costs ? 'Hint (−1 ★)' : 'Hint (' + left + ' left)') : 'No hints left';
+  $('btn-hint').title = costs ? 'Solving with a hint earns two stars. A clean attempt later can still earn the third.' : '';
   $('btn-hint').disabled = left <= 0;
   let h = '';
   // Solved with help: a clean attempt is the way to the third star.
@@ -1212,9 +1281,15 @@ const HELP = {
 };
 function errorCard(error, line, lead) {
   const where = line ? ' <span class="err-line">line ' + line + '</span>' : '';
-  const help = error.hint || HELP[error.type] || '';
+  let help = error.hint || HELP[error.type] || '', src = '';
+  // A syntax error is about one line of text: show that line, and name the slip when it is a common one.
+  if (line && (error.type === 'SyntaxError' || error.type === 'IndentationError') && editor) {
+    const text = (editor.value.split('\n')[line - 1] || '').replace(/\s+$/, '');
+    if (text.trim()) src = '<pre class="err-src">' + esc(clip(text, 200)) + '</pre>';
+    if (/\)\s*[A-Za-z_]\w*\s*\(/.test(text.replace(/#.*$/, '')) && !/\b(and|or|not|in|is|if|else|for)\b/.test(text)) help = 'Two commands are on this one line. Give each command a line of its own.';
+  }
   return '<div class="errcard">' + (lead ? '<p class="err-lead">' + esc(lead) + '</p>' : '') + '<div class="err-title">' + esc(error.type === 'StepLimit' ? 'Ran too long' : error.type) + where + '</div>' +
-    (error.type === 'StepLimit' ? '' : '<div class="err-msg">' + esc(error.message) + '</div>') + (help ? '<div class="err-help">' + esc(help) + '</div>' : '') + '</div>';
+    (error.type === 'StepLimit' ? '' : '<div class="err-msg">' + esc(error.message) + '</div>') + src + (help ? '<div class="err-help">' + esc(help) + '</div>' : '') + '</div>';
 }
 function testRow(t, brief, helped) {
   if (t.stdout) {
@@ -1256,10 +1331,10 @@ function renderCodeResults(res) {
       : errorCard(e0, res.tests[0].errorLine, 'Every test stopped with the same error.');
     h += '<ol class="tests">' + res.tests.map(t => testRow(t, same, helped)).join('') + '</ol>';
     if (res.ok && res.craft) h += craftHtml(res);
-    if (res.ok && res.refSteps > 0) h += '<p class="mute work">Work done: ' + num(res.steps) + ' steps. The model solution takes ' + num(res.refSteps) + '.</p>';
+    if (res.ok && res.refSteps > 0) h += '<p class="mute work">Work done: ' + num(res.steps) + ' steps. The model solution takes ' + num(res.refSteps) + '. <span title="A step is one small action of the interpreter: reading a variable, comparing two values, calling a function. Fewer steps means less work for the same answer.">A step is one small action, such as a comparison or a call.</span></p>';
     for (const t of res.tests) out += t.output || '';
   }
-  $('results').innerHTML = h + (res.tests.some(t => t.stdout) ? '' : outputBlock(out));
+  $('results').innerHTML = h + (Terminal || res.tests.some(t => t.stdout) ? '' : outputBlock(out));          // the terminal shows what was printed
 }
 function renderRobotResults(res) {
   let h = '';
@@ -1268,7 +1343,7 @@ function renderRobotResults(res) {
   else if (res.ok) h = '<div class="sum ok">' + (n > 1 ? 'It works on all ' + n + ' decks' : cur.goal === 'shards' ? 'All shards collected' : 'Beacon reached') + '</div>';
   else if (r && r.error) h = errorCard(r.error, r.errorLine, n > 1 ? 'Deck ' + (r.map + 1) + ' of ' + n + '.' : '');
   else if (r) h = '<div class="sum bad">' + (r.crashed ? 'PIP stopped' : 'Not there yet') + '</div><p>' + esc(r.reason) + (r.errorLine ? ' Look at line ' + r.errorLine + '.' : '') + (n > 1 ? ' <span class="mute">Deck ' + (r.map + 1) + ' of ' + n + '.</span>' : '') + '</p>';
-  $('results').innerHTML = h + outputBlock(res.output);
+  $('results').innerHTML = h + (Terminal ? '' : outputBlock(res.output));
 }
 // What the Scratchpad hands a program: the lines typed into its Input box. Echo makes the output read like a terminal.
 const labIo = () => ({ stdin: $('lab-input').value, files: {}, echo: true });
@@ -1276,7 +1351,8 @@ function renderLabResults(res) {
   const starved = res.error && res.error.type === 'EOFError';
   let h = (res.error ? errorCard(res.error, res.errorLine) : '<div class="sum ok">Ran in ' + num(res.steps) + ' steps</div>');
   if (starved) { $('iobox').open = true; h += '<p class="mute">Type the lines your program should read into the <b>Input</b> box under the editor, one line for each <code>input()</code> call, and run again.</p>'; }
-  h += outputBlock(res.output, !res.error);
+  if (!Terminal) h += outputBlock(res.output, !res.error);
+  else if (!res.error && !(res.output && res.output.trim())) h += '<p class="mute">Nothing was printed. Use <code>print(...)</code> to see a value, or type a name at the <code>&gt;&gt;&gt;</code> prompt.</p>';
   for (const pair of (res.files || []).slice(0, 4)) h += '<details class="out" open><summary>File · ' + esc(pair[0]) + '</summary><pre>' + (pair[1] ? esc(clip(pair[1], 3000)) : '(empty)') + '</pre></details>';
   $('results').innerHTML = h;
 }
@@ -1298,6 +1374,7 @@ async function run() {
   $('taskbox').open = false;          // make room for the results; the task is one click away
   $('btn-run').classList.add('busy');
   setStatus('Running…');
+  $('results').innerHTML = '';          // the last run's verdict must not sit there while this one plays
   await nextPaint();
   let res;
   if (lv.kind === 'sandbox') { S.labIn = $('lab-input').value; if (/\binput\s*\(/.test(code)) $('iobox').open = true; }
@@ -1358,6 +1435,7 @@ async function run() {
   editor.markActive(null);
   reviewCraft(lv, code, res, how);
   if (lv.kind === 'robot') renderRobotResults(res); else if (lv.kind === 'sandbox') renderLabResults(res); else renderCodeResults(res);
+  Term.show(lv, res, code);
   const errLine = lv.kind === 'robot' ? (res.runs.length && !res.ok ? res.runs[res.runs.length - 1].errorLine : null) : (res.errorLine || ((res.tests.find(t => !t.ok && t.errorLine) || {}).errorLine) || null);
   if (errLine) editor.markError(errLine);
   busy = false;
@@ -2005,6 +2083,7 @@ const TOURS = {
     { at: 'tab-btn-tools', text: 'Tools holds every function and method you have been shown so far, as cards you can search. A level never says which ones it needs.' },
     { at: 'editor', tab: 'code', text: 'Write your answer here. Suggestions appear as you type, each with a reminder of what it does.' },
     { at: 'btn-trace', tab: 'code', text: 'Step through runs your code one line at a time and draws your lists and dictionaries in the arena. It is the fastest way to find a bug.' },
+    { at: 'term', tab: 'code', text: 'The terminal writes down what your code did, the way Python itself would: what it printed, what each call returned, and the full error when one is raised. Type a line of your own after >>> to try your functions with any input.' },
     { at: 'btn-run', tab: 'code', text: 'Run checks your code against every test and plays one of them in the scene. A passing answer can also earn four craft marks for being short, clear and tidy.' },
   ],
 };
@@ -2163,6 +2242,16 @@ function confirmBox(title, text, yes, fn) {
 }
 
 // ---------------------------------------------------------------- events
+// A command button writes its line the way a person would: on a line of its own, indented like the block it lands in.
+function insertLine(text) {
+  const ta = editor.el, v = ta.value, at = ta.selectionEnd, a = v.lastIndexOf('\n', at - 1) + 1;
+  let b = v.indexOf('\n', at);
+  if (b < 0) b = v.length;
+  const line = v.slice(a, b), indent = /^ */.exec(line)[0];
+  if (!line.trim()) { ta.setSelectionRange(a, b); editor.insert(indent + text); return; }
+  ta.setSelectionRange(b, b);
+  editor.insert('\n' + indent + (line.replace(/#.*$/, '').trimEnd().endsWith(':') ? '    ' : '') + text);
+}
 const CMD_TEXT = { 'for i in range(n):': 'for i in range(3):', 'while condition:': 'while front_is_clear():', 'if condition:': 'if on_shard():', 'if / elif / else': 'if front_is_clear():', 'def name():': 'def my_trick():' };
 function back() {
   if (play.mode === 'interview' && S.iv) {
@@ -2179,7 +2268,7 @@ function bind() {
     const id = t.id;
     if (t.dataset.zone) { const ls = zoneLevels(+t.dataset.zone); const firstOpen = ls.find(l => !isSolved(INDEX[l.id])) || ls[0]; Sfx.play('select'); selectLevel(INDEX[firstOpen.id]); return; }
     if (t.dataset.tab) { Sfx.play('click'); showTab(t.dataset.tab); return; }
-    if (t.dataset.cmd) { editor.insert(CMD_TEXT[t.dataset.cmd] || t.dataset.cmd); return; }
+    if (t.dataset.cmd) { insertLine(CMD_TEXT[t.dataset.cmd] || t.dataset.cmd); return; }
     if (t.dataset.ins !== undefined) { editor.insert(t.dataset.ins); return; }
     if (t.dataset.move) { editor.move(+t.dataset.move); return; }
     if (t.dataset.speed) { S.speed = +t.dataset.speed; save(); document.querySelectorAll('[data-speed]').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed)); return; }

@@ -147,6 +147,37 @@ p { margin: 0; }
 .nav:hover:not(:disabled) { border-color: var(--accent); }
 .nav:disabled { opacity: .3; cursor: default; }
 
+.err-src { margin: 6px 0; font: 400 13.5px/1.5 var(--mono); background: #060916; border: 1px solid var(--line); border-left: 3px solid var(--fail); border-radius: 3px; padding: 6px 10px; overflow-x: auto; white-space: pre; color: var(--ink); }
+.f-name small { font: 500 12.5px/1 var(--mono); color: var(--mute); margin-left: 6px; letter-spacing: 0; }
+/* the terminal: the last run as Python's prompt would show it, and a prompt to try lines at */
+.term { flex: none; background: #060916; border: 1px solid var(--line-2); border-radius: 4px; }
+.term summary { padding: 8px 12px; font: 600 12.5px/1.2 var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; }
+.term summary span { margin-left: 8px; font: 400 13px/1.2 var(--body); letter-spacing: 0; text-transform: none; color: var(--mute); }
+#term-out { max-height: 176px; overflow-y: auto; padding: 2px 12px 6px; font: 400 13.5px/1.55 var(--mono); border-top: 1px solid var(--line); }
+#term-out:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tl { display: flex; gap: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tl i, #term-row i { flex: none; font-style: normal; color: var(--accent); user-select: none; }
+.tl-sh, .tl-in { margin-top: 5px; color: var(--ink); }
+.tl-more { color: var(--ink); }
+.tl-sh i { color: var(--mute); }
+.tl-in.ok i, .tl-sh.ok i { color: var(--ok); }
+.tl-in.bad i, .tl-sh.bad i { color: var(--fail); }
+.tl-out { color: var(--ink-2); }
+.tl-val { color: var(--amber); }
+.tl-err { color: var(--fail); }
+.tl-note { color: var(--mute); }
+#term-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px 7px; border-top: 1px solid var(--line); font: 400 13.5px/1.5 var(--mono); }
+#term-in { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: none; border: 0; padding: 2px 0; }
+#term-in:focus { outline: none; }
+#term-row:focus-within { box-shadow: inset 2px 0 0 var(--accent); }
+#term-in::placeholder { color: #5d6898; }
+#tab-code.tracing .term { display: none; }
+#feedback:has(.term:not([hidden])) { max-height: 50%; }
+@media (max-width: 900px) { #term-out { max-height: 118px; } .term summary span { display: none; } }
+@media (pointer: coarse) { #term-in, #term-row { font-size: 16px; } }
+@media (pointer: coarse) and (max-width: 900px) { #tab-code:not(:has(#editor:focus-within)) .keys { display: none; } }          /* the quick keys belong to typing: they make room when the keyboard is away */
+#app.kb #tab-code:has(#term-in:focus) #feedback { display: flex; max-height: none; flex: 1 1 auto; }
+#app.kb #tab-code:has(#term-in:focus) :is(#editor, .keys, .ac-strip, .runbar, #hints, #results) { display: none; }
 /* stage overlays inside a level */
 #stage-note { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3; font: 600 14px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; background: #0a0f20f2; border: 1px solid var(--line-2); border-radius: 2px; padding: 9px 13px; }
 #robot-ctl { position: absolute; left: var(--gl); bottom: max(14px, env(safe-area-inset-bottom, 0px)); z-index: 3; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -750,7 +781,7 @@ button.tc-head:hover::after { color: var(--accent); }
         <span class="linecount" id="linecount" hidden></span>
         <span class="status" id="run-status" aria-live="polite"></span>
       </div>
-      <div id="feedback"><div id="hints"></div><div class="hint mentor" id="mentor" aria-live="polite" hidden></div><div id="trace" hidden></div><div class="results" id="results" aria-live="polite"></div></div>
+      <div id="feedback"><details class="term" id="term" open hidden><summary>Terminal <span>what your code printed and returned</span></summary><div id="term-out" role="log" aria-label="What the last run printed and returned" tabindex="0"></div><label id="term-row"><i id="term-ps" aria-hidden="true">&gt;&gt;&gt;</i><input id="term-in" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="try a line: a call, a name, print(...)" aria-label="A line of Python to run against your code"></label></details><div id="hints"></div><div class="hint mentor" id="mentor" aria-live="polite" hidden></div><div id="trace" hidden></div><div class="results" id="results" aria-live="polite"></div></div>
     </section>
     <section class="tab prose" id="tab-tools" role="tabpanel" hidden></section>
     <section class="tab prose" id="tab-solution" role="tabpanel" hidden></section>
@@ -769,8 +800,8 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/minipy-lib.js?v=023ffa9e"></script>
 <script src="js/minipy-mods.js?v=40a94720"></script>
 <script src="js/prelude.js?v=779f9a85"></script>
-<script src="js/runner.js?v=9a02f535"></script>
-<script src="js/craft.js?v=146d8100"></script>
+<script src="js/runner.js?v=3dccdfce"></script>
+<script src="js/craft.js?v=d9ca1295"></script>
 <script src="js/bughunt.js?v=6c055900"></script>
 <script src="js/levels-z1.js?v=f2c34aa6"></script>
 <script src="js/levels-z2.js?v=44902b50"></script>
@@ -780,16 +811,17 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/levels-z6.js?v=3ed1a65c"></script>
 <script src="js/levels-z7.js?v=f8f55e5c"></script>
 <script src="js/levels-z8.js?v=be4b774f"></script>
-<script src="js/levels-z9.js?v=0e276f5f"></script>
+<script src="js/levels-z9.js?v=fba3828b"></script>
 <script src="js/toolcards.js?v=bbd2f717"></script>
 <script src="js/story.js?v=d0085020"></script>
 <script src="js/curriculum.js?v=9c74b978"></script>
 <script src="js/complete.js?v=2b415e9e"></script>
 <script src="js/editor.js?v=989a6b71"></script>
+<script src="js/terminal.js?v=c2c032b0"></script>
 <script src="js/scenes.js?v=a55b244b"></script>
-<script src="js/world.js?v=358913c5"></script>
+<script src="js/world.js?v=8f903d0d"></script>
 <script src="js/score.js?v=088221a0"></script>
-<script src="js/game.js?v=ee7fbef7"></script>
+<script src="js/game.js?v=f8664f7a"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", function () {
   navigator.serviceWorker.register("sw.js").catch(function () { /* no offline copy here: the game works without one */ });

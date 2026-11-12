@@ -379,6 +379,23 @@ function runRobot(level, code) {
   res.ok = !res.tooLong && res.runs.length === level.maps.length && res.runs.every(r => r.ok);
   return res;
 }
+// A live session for the terminal: the player's file is loaded once, and lines typed at the prompt run against it.
+// A line that is one expression gives back its value, as Python's own prompt does; anything else runs as statements.
+const REPL_BASE = FILE * 200, REPL_STEPS = 1000000;
+function repl(level, code, io) {
+  const printed = !!(level && level.tests && level.tests.some(t => t.stdout !== undefined));
+  const s = session(null, io || ioOf(level, printed ? level.tests[0] : null)), first = s.exec(code, 0, LOAD_STEPS);
+  let n = 0;
+  return { output: first.output, error: first.error,
+    line(text) {
+      const base = REPL_BASE + (n++) * 1000, one = text.indexOf('\n') < 0;
+      let r = one ? s.eval(text, base, REPL_STEPS) : null, value = null;
+      if (!r || (!r.ok && r.error.syntax)) r = s.exec(text, base, REPL_STEPS);
+      else if (r.ok) { const shown = s.repr(r.value); if (shown !== 'None') { value = shown; s.G._ = r.value; } }
+      if (r.error) { r.error.prompt = true; r.error.typed = text; }          // the terminal prints these as lines typed at the prompt, not as lines of the file
+      return { ok: r.ok, output: r.output, value, error: r.error };
+    } };
+}
 function run(level, code, opts) { return level.kind === 'robot' ? runRobot(level, code) : level.kind === 'sandbox' ? runFree(code, 0, opts && opts.io) : runTests(level, code, opts); }
 // Quick syntax check for the editor: null when the code parses, else { line, message, type }.
 function syntaxError(code) {
@@ -386,7 +403,7 @@ function syntaxError(code) {
   catch (e) { if (e instanceof MP.PySyntax) return { line: e.line, message: e.msg, type: e.kind }; return null; }
 }
 
-root.PylonRunner = { run, runTests, runRobot, runFree, traceRun, brief, simulate, parseMap, refSteps, userLine, syntaxError, countLines, normOut, session, ioOf,
+root.PylonRunner = { run, runTests, runRobot, runFree, traceRun, brief, simulate, parseMap, refSteps, userLine, syntaxError, countLines, normOut, session, ioOf, repl,
   setPrelude(src) { PRELUDE = src; }, PERF_FACTOR, FILE };
 if (typeof module !== 'undefined' && module.exports) module.exports = root.PylonRunner;
 })(typeof window !== 'undefined' ? window : globalThis);

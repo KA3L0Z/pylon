@@ -526,6 +526,10 @@ W.showRobot = function (world, color) {
   under.position.y = -1.6;
   arena.add(under);
   pip = makePip();
+  // On a deck, turns are relative to PIP: an arrow on the floor shows which way it faces.
+  const nose = new T.Mesh(new T.ConeGeometry(0.11, 0.24, 3), basic(0xffc247));
+  nose.rotation.x = Math.PI / 2; nose.scale.z = 0.25; nose.position.set(0, -0.39, 0.5);
+  pip.add(nose);
   arena.add(pip);
   resetRobot();
   const r = 0.5 * Math.hypot(world.w, world.h) + 0.9;

@@ -211,7 +211,7 @@ function modelLines(lv) {
   return modelCache.get(key);
 }
 // How many lines of code a level allows for the "concise" mark.
-function budgetFor(model) { return Math.max(model + 2, Math.ceil(model * 1.3)); }
+function budgetFor(model) { return Math.max(model + 3, Math.ceil(model * 1.5)); }          // room for a readable answer, not only for the shortest one
 
 // Names the level itself hands out (the function to write, its parameters): never the player's choice.
 function givenNames(lv) {
@@ -247,8 +247,8 @@ function names(ctx) {
     const name = item.name, kind = item.kind;
     if (ctx.given.has(name) || name === '_' || /^__\w+__$/.test(name)) continue;
     if (SHADOW.has(name)) { flag(item, '`' + name + '` hides Python\'s own `' + name + '()`. Pick another name.'); continue; }
-    if (name.length === 1 && !SHORT_OK.has(name) && kind !== 'comp' && kind !== 'lambda' && kind !== 'except' && kind !== 'with') {
-      flag(item, 'The one-letter name `' + name + '` says nothing. Name it after what it holds.'); continue;
+    if (name.length === 1 && !SHORT_OK.has(name) && kind !== 'comp' && kind !== 'loop' && kind !== 'lambda' && kind !== 'except' && kind !== 'with') {
+      flag(item, 'The one-letter name `' + name + '` says nothing. Name it after what it holds. (Loop variables may be one letter, and so may the usual counters and coordinates: i, j, k, n, m, x, y, z, r, c, a, b.)'); continue;
     }
     if (VAGUE.test(name)) { flag(item, '`' + name + '` is a placeholder. Name it after what it holds.'); continue; }
     if (kind === 'class') { if (!/^_?[A-Z][A-Za-z0-9]*$/.test(name)) flag(item, 'Class names start with a capital: `' + name.charAt(0).toUpperCase() + name.slice(1) + '`.'); continue; }
