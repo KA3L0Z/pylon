@@ -471,7 +471,7 @@ for i in range(len(crew)):
 # 0 2 Ada Cy
 # 1 2 Bo Cy</code></pre>
 <p>In every printed line, <code>j</code> is larger than <code>i</code>.</p>
-<p>A <code>return</code> inside the loops ends the whole function at once, so a search can stop the moment it finds what it wants. To hand back two values, return them in a list such as <code>[i, j]</code>.</p>`,
+<p>A <code>return</code> inside the loops ends the whole function at once, so a search can stop the moment it finds what it wants. A function can hand back several values at once by returning them in a list.</p>`,
       task: py`
 <p>The gate to the Data Vaults opens when two power cells together supply exactly the right charge. Write <code>two_sum(nums, target)</code>. Return the indexes of the two numbers in <code>nums</code> that add up to <code>target</code>, as a list with the smaller index first.</p>
 <p>Exactly one pair works, and one cell cannot be used twice.</p>

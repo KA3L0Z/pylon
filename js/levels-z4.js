@@ -232,20 +232,18 @@ length_of_longest_substring("pwwkew")     # 3, for "wke"</code></pre>
       boss: false,
       lesson: py`
 <p>When a list is sorted, one comparison can rule out half of it. Look at the middle item. If it is too small, everything before it is too small as well. If it is too big, so is everything after it. Repeating this on the half that remains is <b>binary search</b>.</p>
-<p>Keep two bounds, <code>lo</code> and <code>hi</code>, around the part still in play. Here the same idea finds a secret number between 1 and 100 and counts the guesses:</p>
-<pre><code>def guesses_needed(secret):
-    lo, hi, count = 1, 100, 0
-    while lo &lt;= hi:
-        mid = (lo + hi) // 2
-        count += 1
-        if mid == secret:
-            return count
-        if mid &lt; secret:
-            lo = mid + 1          # too small: drop the lower half
-        else:
-            hi = mid - 1          # too big: drop the upper half
-
-print(guesses_needed(37), guesses_needed(100))   # 3 7</code></pre>
+<p>Keep two bounds, <code>lo</code> and <code>hi</code>, around the part still in play. Here the same idea closes in on a secret number between 1 and 100, and prints the bounds after every guess:</p>
+<pre><code>secret = 37
+lo, hi = 1, 100
+while lo &lt; hi:
+    mid = (lo + hi) // 2
+    if mid &lt; secret:
+        lo = mid + 1          # too small: everything up to mid is out
+    else:
+        hi = mid              # big enough: everything above mid is out
+    print(lo, hi)
+# 1 50, 26 50, 26 38, 33 38, 36 38, 36 37, 37 37</code></pre>
+<p>This loop never asks whether a guess is exactly right. It narrows until one number is left. A search that has to report a hit, or report that the value is not there at all, needs one more question inside the loop and a decision about what an empty range means.</p>
 <p>Each guess halves the range, so 100 numbers never need more than 7 guesses, and 200,000 need at most 18. That growth is written <code>O(log n)</code>. Reach for binary search whenever the data is sorted and you are looking for one position in it.</p>`,
       task: py`
 <p>The Forge keeps its relay codes in a sorted list, smallest first, with no repeats.</p>
@@ -550,10 +548,8 @@ while lo &lt; hi:
     else:
         print(nums[lo], nums[hi])
         lo += 1
-        while lo &lt; hi and nums[lo] == nums[lo - 1]:
-            lo += 1          # skip the repeated value
-# prints 1 5, then 3 3</code></pre>
-<p>Sorting puts equal values side by side. After using a value, step past its copies, and the same answer cannot be reported twice.</p>
+# prints 1 5, then 1 5 again, then 3 3</code></pre>
+<p>The pair <code>1 5</code> is reported twice, because the list holds two 1s. Sorting put those equal values side by side, and that is what makes the repeat easy to avoid: after using a value, keep stepping while the next one is a copy of it.</p>
 <p>A search for three numbers turns into this pair search once the first number is fixed. To pass over a repeated first number, <code>continue</code> jumps straight to the next round of a <code>for</code> loop.</p>
 <p>Reach for sort plus two pointers when you need pairs or triplets that hit a target sum.</p>`,
       task: py`
