@@ -11,7 +11,7 @@ const T = root.THREE;
 const W = root.PylonWorld = { ok: !!T };
 if (!T) return;
 
-const RISE = 2, RADIUS = 10, PER_TURN = 8, ZONE_H = RISE * PER_TURN, TAU = Math.PI * 2;
+const RISE = 2, RADIUS = 10, PER_TURN = 8, TAU = Math.PI * 2;
 const mq = q => !!(root.matchMedia && root.matchMedia(q).matches);
 const calm = mq('(prefers-reduced-motion: reduce)'), coarse = mq('(pointer: coarse)');
 const FONT = "'Barlow Condensed', 'Arial Narrow', 'Trebuchet MS', sans-serif";
@@ -286,8 +286,10 @@ const nodePos = i => new T.Vector3(RADIUS * Math.cos(nodeAngle(i)), i * RISE + 1
 function buildHub() {
   hub = new T.Group();
   scene.add(hub);
-  const nz = zones.length;
-  topY = nz * ZONE_H;
+  // Floors need not be the same size: each one is as tall as the levels that stand on it.
+  const zoneStart = zones.map(() => 0), zoneCount = zones.map(() => 0);
+  levels.forEach((lv, i) => { const k = lv.zone - 1; if (!zoneCount[k]) zoneStart[k] = i; zoneCount[k]++; });
+  topY = levels.length * RISE;
   const island = new T.Mesh(new T.CylinderGeometry(15.5, 10.5, 2.6, 6), std(0x0a0f2a, { roughness: 0.88, metalness: 0.15, envMapIntensity: 0.35 }));
   island.position.y = -2.1;
   const islandRim = new T.Mesh(new T.TorusGeometry(15.2, 0.1, 6, 6), basic(0x2b3a80));
@@ -297,7 +299,7 @@ function buildHub() {
   hub.add(island, islandRim, islandGlow);
   const coreMat = std(0x10173c, { roughness: 0.5, metalness: 0.55, envMapIntensity: 0.7 }), collarMat = std(0x1a2456, { roughness: 0.4, metalness: 0.6 });
   zones.forEach((z, k) => {
-    const y0 = k * ZONE_H, col = lin(z.color);
+    const y0 = zoneStart[k] * RISE, ZONE_H = Math.max(1, zoneCount[k]) * RISE, col = lin(z.color);
     const core = new T.Mesh(new T.CylinderGeometry(2.3, 2.3, ZONE_H - 0.5, 6), coreMat);
     core.position.y = y0 + ZONE_H / 2;
     hub.add(core);
@@ -313,7 +315,7 @@ function buildHub() {
     ring.rotation.x = Math.PI / 2; ring.position.y = y0 + 0.05;
     const halo = glow(z.color, 13, 0);
     halo.position.y = y0 + ZONE_H / 2;
-    const a0 = nodeAngle(k * PER_TURN) + 0.4;
+    const a0 = nodeAngle(zoneStart[k]) + 0.4;
     const label = new T.Sprite(new T.SpriteMaterial({ map: textTex(track('FLOOR ' + (k + 1) + '  ·  ' + z.name.toUpperCase()), 1024, 96, '600 56px ' + FONT, z.color), transparent: true, depthWrite: false, fog: true, toneMapped: false }));
     label.scale.set(6.9, 0.65, 1);
     label.position.set(5.6 * Math.cos(a0), y0 + 5.2, 5.6 * Math.sin(a0));
