@@ -29,7 +29,7 @@ Pylon is a free browser game that teaches Python, from the first function call t
 - **A tour for new players.** A few notes point at the parts of the screen, once on the first drone level and once on the first code level.
 - **Comfort settings.** Three text sizes, less motion, and higher contrast, in the Menu. The game also follows the system's "reduce motion" setting.
 - **A score that follows the play.** The music is not a recording. It is written while it plays, in the browser: every floor has a theme in its own key, from D Dorian on the Boot Deck to D major at the summit, and one five-note motif, the tower's signal, runs through all of them. The tower starts almost silent, and bass, full chords, arpeggios, a slow lead voice and a pulse come in as levels are solved and floors come back online. Inside a level the mix pulls back so it is easy to think, a failed run dims the sound for a moment, a passed one is answered by the bells, and the sound effects are tuned to the key of the theme that is playing. The original recorded track can still be chosen in the Menu.
-- **Scratchpad, hints, model solutions, 23 badges and a daily streak.**
+- **Scratchpad, hints, model solutions, 28 badges and a daily streak.**
 
 ![The tower](docs/tower.jpg)
 

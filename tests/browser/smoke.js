@@ -107,6 +107,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const byTitle = t => levels.find(l => l.title.toLowerCase() === t.trim().toLowerCase());
 
     say('the intro, then the first drone level with its tour');
+    await seen('#title-go');
+    expect(await page.evaluate(() => document.getElementById('title-go').textContent) === 'New game', 'a new player is not offered a new game');
+    await click('#title-credits');
+    await seen('#modal-body .credits');
+    await click('#menu-close');
+    await click('#title-record');
+    await seen('#modal-body .rec');
+    await click('#menu-close');
+    await click('#title-badges');
+    await seen('#modal-body .badges');
+    expect(await page.evaluate(() => document.querySelectorAll('#modal-body .badges li').length) === 28, 'the badge list is not 28 long');
+    await click('#menu-close');
+    await click('#title-go');
+    expect(await page.evaluate(() => document.getElementById('title').hidden), 'the title screen stayed up');
     await seen('#intro-start');
     await click('#intro-start');
     await seen('#card-enter');
@@ -214,6 +228,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await click('#save-load'); await seen('#confirm-yes');
     await click('#confirm-yes');
     await until(() => [...document.querySelectorAll('.toast')].some(t => /Save loaded/.test(t.textContent)));
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('pylon.backups') || '[]').some(b => b.w === 'load' && b.n >= 3)), 'loading a save kept no backup of the one it replaced');
+    expect(await page.evaluate(() => (JSON.parse(localStorage.getItem('pylon.save.v1')).counters.runs || 0) >= 3), 'runs of the player\'s code are not counted');
 
     if (hasWorker) {
       say('the offline copy: the page starts again with the network switched off');
@@ -225,6 +241,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const offline = await page.evaluate(() => ({ levels: (window.PYLON_LEVELS || []).length, solved: Object.values(JSON.parse(localStorage.getItem('pylon.save.v1')).levels).filter(l => l.solved).length }));
       expect(offline.levels === levels.length, 'offline, ' + offline.levels + ' levels loaded instead of ' + levels.length);
       expect(offline.solved >= 3, 'offline, the saved progress is gone');
+      await seen('#title-go');
+      expect(await page.evaluate(() => document.getElementById('title-go').textContent === 'Continue' && /levels/.test(document.getElementById('title-save').textContent)), 'a returning player is not offered to continue');
       await page.setOfflineMode(false);
     }
 

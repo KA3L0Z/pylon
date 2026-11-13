@@ -460,6 +460,34 @@ p { margin: 0; }
 .ivlist small { color: var(--mute); font-size: 14px; }
 #toasts { position: fixed; left: var(--gl); bottom: max(16px, env(safe-area-inset-bottom, 0px)); z-index: 40; display: flex; flex-direction: column; gap: 6px; pointer-events: none; max-width: calc(100% - var(--gl) - var(--gr)); }
 .toast { background: var(--deck-3); border: 1px solid var(--line-2); border-radius: 3px; padding: 11px 15px; font-size: 15px; box-shadow: 0 14px 30px -14px #000; animation: rise .24s var(--ease); transition: opacity .35s, transform .35s; }
+#title { position: fixed; inset: 0; z-index: 29; display: grid; align-items: center; overflow-y: auto; padding: 24px var(--gr) 24px var(--gl); background: linear-gradient(90deg, #05070ff7 0%, #05070fe0 36%, #05070f66 70%, #05070f26 100%); animation: fade .3s; }
+body.titled #hud, body.titled #floors, body.titled #card, body.titled #dock, body.titled #stage-note, body.titled #robot-ctl, body.titled #pip-say { visibility: hidden; }
+.t-box { width: min(520px, 100%); margin-left: clamp(0px, 6vw, 96px); display: flex; flex-direction: column; gap: 14px; }
+#title h1 { font: 700 clamp(72px, 13vw, 136px)/.86 var(--display); letter-spacing: .04em; text-transform: uppercase; margin: 0; color: var(--ink); text-shadow: 0 0 44px var(--glow); }
+#title .eyebrow { color: var(--accent); }
+.t-tag { margin: 0; font-size: 18px; color: var(--ink-2); max-width: 34ch; }
+.t-save { margin: 4px 0 0; color: var(--mute); font-size: 15px; max-width: 46ch; }
+.t-menu { display: flex; flex-direction: column; gap: 8px; width: min(300px, 100%); margin-top: 6px; }
+.t-menu .btn { justify-content: flex-start; text-align: left; min-height: 46px; }
+.t-ver { margin: 8px 0 0; color: var(--mute); font-size: 13px; letter-spacing: .08em; }
+@media (max-width: 700px) { #title { background: #05070fe6; } .t-box { margin: 0 auto; } }
+@media (max-height: 560px) { #title h1 { font-size: 56px; } .t-menu { flex-direction: row; flex-wrap: wrap; width: auto; } .t-tag { display: none; } }
+.rec { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin: 0 0 12px; }
+.rec div { background: var(--deck-2); border-radius: 3px; padding: 11px 13px; }
+.rec b { display: block; font: 700 26px/1.15 var(--display); letter-spacing: .03em; font-variant-numeric: tabular-nums; }
+.rec b small { font-size: 15px; font-weight: 500; color: var(--mute); }
+.rec span { color: var(--mute); font-size: 13px; }
+.rec-floors, .rec-picks, .baks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rec-floors li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(50px, 2fr) auto; gap: 12px; align-items: center; font-size: 15px; }
+.rec-floors small { color: var(--mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-bar, .b-prog { display: block; height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.rec-bar i, .b-prog i { display: block; height: 100%; background: var(--accent); }
+.b-prog { margin-top: 7px; } .b-prog i { background: var(--amber); } .badges small.b-n { font-size: 12px; margin-top: 3px; }
+.rec-picks li, .baks li { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: space-between; background: var(--deck-2); padding: 9px 13px; border-radius: 3px; font-size: 15px; }
+.rec-picks b { color: var(--accent); font-weight: 600; }
+.credits dl { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); gap: 8px 18px; margin: 0 0 16px; }
+.credits dt { color: var(--mute); font: 600 13px/1.7 var(--display); letter-spacing: .14em; text-transform: uppercase; } .credits dd { margin: 0; }
+@media (max-width: 520px) { .credits dl { grid-template-columns: 1fr; gap: 2px; } .credits dd { margin-bottom: 8px; } }
 .toast.gone { opacity: 0; transform: translateY(8px); }
 .toast.badge { border-color: var(--amber); color: var(--amber); font-weight: 600; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
@@ -803,6 +831,7 @@ button.tc-head:hover::after { color: var(--accent); }
     <section class="tab prose" id="tab-solution" role="tabpanel" hidden></section>
   </aside>
 
+  <div id="title" hidden><div class="t-box"><div class="eyebrow">Signal tower · nine floors · one drone</div><h1>Pylon</h1><p class="t-tag">Bring a dead tower back online, one line of Python at a time.</p><p class="t-save" id="title-save"></p><div class="t-menu"><button type="button" class="btn primary" id="title-go">Continue</button><button type="button" class="btn" id="title-record">Career record</button><button type="button" class="btn" id="title-badges">Badges</button><button type="button" class="btn" id="title-settings">Settings</button><button type="button" class="btn" id="title-credits">Credits</button></div><p class="t-ver" id="title-ver"></p></div></div>
   <div id="modal" hidden><div class="modal-card" role="dialog" aria-modal="true"><div id="modal-body"></div></div></div>
   <div id="toasts" aria-live="polite"></div>
   <div id="coach" role="dialog" aria-label="Tour" hidden><p id="coach-text"></p><div class="coach-foot"><span id="coach-n"></span><button type="button" class="linkbtn" id="coach-skip">Skip the tour</button><button type="button" class="btn primary" id="coach-next">Next</button></div></div>
@@ -839,7 +868,7 @@ button.tc-head:hover::after { color: var(--accent); }
 <script src="js/scenes.js?v=a55b244b"></script>
 <script src="js/world.js?v=8f903d0d"></script>
 <script src="js/score.js?v=088221a0"></script>
-<script src="js/game.js?v=2817dea9"></script>
+<script src="js/game.js?v=3f5ab240"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", function () {
   navigator.serviceWorker.register("sw.js").catch(function () { /* no offline copy here: the game works without one */ });

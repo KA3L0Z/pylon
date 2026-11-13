@@ -142,6 +142,7 @@ function mergeRemote(remote) {
   S.intro = S.intro || !!remote.intro;
   S.rank0 = Math.max(S.rank0 || 0, rankFrom(remote.cv, remote.rank0));
   S.bonus = Math.max(S.bonus || 0, remote.bonus || 0);
+  S.pt = Math.max(S.pt || 0, remote.pt || 0);
   S.days = Array.from(new Set(S.days.concat(Array.isArray(remote.days) ? remote.days : []))).sort().slice(-400);
   if (Array.isArray(remote.ivLog) && remote.ivLog.length > S.ivLog.length) S.ivLog = remote.ivLog;
   for (const k in remote.badges || {}) if (!S.badges[k]) S.badges[k] = remote.badges[k];
@@ -463,11 +464,21 @@ const BADGES = [
   { id: 'bugs', name: 'Exterminator', desc: 'Repair 10 planted bugs in the bug hunt.', test: c => c.n('bugs') >= 10 },
   { id: 'senior', name: 'Senior Engineer', desc: 'Bring Floor 7 back online.', test: c => c.rank >= 7 },
   { id: 'summit', name: 'Top of the Pylon', desc: 'Solve every level in the tower.', test: c => c.solved >= LEVELS.length },
+  { id: 'runs', name: 'Test Pilot', desc: 'Run your code 250 times.', test: c => c.n('runs') >= 250 },
+  { id: 'prompt', name: 'Ask the Machine', desc: 'Type 20 lines at the terminal prompt.', test: c => c.n('term') >= 20 },
+  { id: 'floor3', name: 'Spotless Floor', desc: 'Earn three stars on every level of one floor.', test: c => c.floors3 >= 1 },
+  { id: 'perfect', name: 'Flawless Tower', desc: 'Earn three stars on every level in the tower.', test: c => c.three >= LEVELS.length },
+  { id: 'witness', name: 'Witness', desc: 'Hear the whole story of the tower, every scene of it.', secret: true, test: c => c.allScenes > 0 && c.scenes >= c.allScenes },
 ];
+function badgeFacts() {
+  const done = LEVELS.filter((l, i) => isSolved(i)), allScenes = Saga ? Object.keys(Saga.SCENES) : [], seen = (S.saga && S.saga.seen) || {};
+  return { solved: done.length, rank: rankIndex(), streak: streak(), three: done.filter(l => S.levels[l.id].stars === 3).length, lean: done.filter(l => S.levels[l.id].lean).length, craft4: done.filter(l => S.levels[l.id].craft === 15).length,
+    bosses: done.filter(l => l.boss).length, classics: done.filter(l => l.classic).length, n: k => S.counters[k] || 0,
+    floors3: ZONES.filter(z => { const ls = zoneLevels(z.n); return ls.length > 0 && ls.every(l => isSolved(INDEX[l.id]) && S.levels[l.id].stars === 3); }).length,
+    allScenes: allScenes.length, scenes: allScenes.filter(id => seen[id]).length };
+}
 function checkBadges(silent) {
-  const done = LEVELS.filter((l, i) => isSolved(i));
-  const c = { solved: done.length, rank: rankIndex(), streak: streak(), three: done.filter(l => S.levels[l.id].stars === 3).length, lean: done.filter(l => S.levels[l.id].lean).length, craft4: done.filter(l => S.levels[l.id].craft === 15).length,
-    bosses: done.filter(l => l.boss).length, classics: done.filter(l => l.classic).length, n: k => S.counters[k] || 0 };
+  const c = badgeFacts();
   let fresh = 0;
   for (const b of BADGES) {
     if (S.badges[b.id] || !b.test(c)) continue;
@@ -971,6 +982,7 @@ function keepCode() {                             // put what is in the editor w
   else if (play.mode === 'interview' && S.iv) S.iv.codes[cur.id] = editor.value;
 }
 function enter(lv, opts) {
+  Title.hide();
   opts = opts || {};
   closeModal(); closeTrace(); Mentor.stop(); clearNote(); Tour.end();
   cur = lv;
@@ -1424,6 +1436,7 @@ async function run() {
   editor.closeComplete();
   const lv = cur, code = editor.value, s = st(lv.id), how = play.mode;
   keepCode();
+  bump('runs');
   if (how === 'normal') s.tries++;
   editor.markError(null); editor.markActive(null);
   if (coarse && document.activeElement === editor.el) editor.el.blur();          // put the phone keyboard away so the result is visible
@@ -2065,11 +2078,13 @@ function cleanSave(d) {
   if (typeof d.labIn === 'string') out.labIn = d.labIn.slice(0, 4000);
   if (d.bug && typeof d.bug === 'object' && day(d.bug.d)) out.bug = { d: d.bug.d, ok: !!d.bug.ok };
   out.tour = int(d.tour, 3);
+  out.pt = int(d.pt, 4e8);
   out.t = int(d.t, 1e14);
   return out;
 }
 // Replace the progress in this browser with a save that has been read and cleaned.
 function adoptSave(d) {
+  backupNow('load');
   clearInterval(ivTimer);
   if (mode === 'level') closeLevel();
   // What belongs to this device and this person stays, unless the save says otherwise: sound, graphics, comfort.
@@ -2094,6 +2109,7 @@ async function showSaveBox() {
     '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn primary" id="save-copy" disabled>Copy the code</button></div>' +
     '<h3>Load a save code</h3><textarea class="savebox" id="save-in" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste a save code here" aria-label="A save code to load"></textarea>' +
     '<p class="mute" id="save-msg" aria-live="polite"></p>' +
+    baksHtml() +
     '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn" id="save-load">Load this save</button><button type="button" class="btn ghost" data-focus id="menu-close">Close</button></div>', { wide: true });
   const code = await saveCode(), out = $('save-out');
   if (!out) return;
@@ -2210,6 +2226,131 @@ const Tour = (() => {
   return { start, next, end, maybe, get on() { return !!steps; } };
 })();
 
+// ---------------------------------------------------------------- the title screen, the career record, credits, backups
+const VERSION = 19;
+const fmtTime = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? h + ' h ' + m + ' min' : m + ' min'; };
+const fmtDay = ts => { try { return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
+// The title screen stands in front of the tower when the game starts in the hub. A level that was open is returned to directly.
+const Title = (() => {
+  let on = false, after = null;
+  function refresh() {
+    if (!on) return;
+    const t = totals(), i = nextIndex(), lv = LEVELS[i < 0 ? LEVELS.length - 1 : i], z = ZONES[(lv.zone || 1) - 1] || ZONES[0];
+    $('title-go').textContent = t.solved || S.intro ? 'Continue' : 'New game';
+    $('title-save').textContent = t.solved ? (i < 0 ? 'The tower is online' : 'Floor ' + z.n + ' · ' + z.name) + ' · ' + t.solved + ' of ' + LEVELS.length + ' levels · ' + RANKS[rankIndex()] + ((S.pt || 0) >= 60 ? ' · ' + fmtTime(S.pt) + ' played' : '')
+      : 'Nine floors, ' + LEVELS.length + ' levels. Nothing here needs an account, and your progress is saved as you go.';
+    $('title-ver').textContent = 'Version ' + VERSION;
+  }
+  function show(then) {
+    on = true; after = then || null; document.body.classList.add('titled');
+    $('title').hidden = false;
+    refresh();
+    if (!coarse) $('title-go').focus({ preventScroll: true });
+  }
+  function hide(go) { if (!on) return; on = false; $('title').hidden = true; document.body.classList.remove('titled'); const f = after; after = null; if (go && f) f(); }
+  return { show, hide, refresh, get on() { return on; } };
+})();
+// Time at the keyboard, counted while the page is in view and the game is past its title.
+setInterval(() => { if (!document.hidden && !Title.on) S.pt = (S.pt || 0) + 10; }, 10000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } } });
+// One thing going wrong should not cost a player their evening: keep the save, and say so once.
+let crashed = false;
+window.addEventListener('error', e => {
+  if (crashed || !e || !e.error || /ResizeObserver/.test(e.message || '')) return;
+  crashed = true;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (x) { /* ignore */ }
+  toast('Something went wrong on this screen. Your progress is saved. If it happens again, reload the page.');
+});
+
+// Backups: a copy of the save from the start of each of the last days played, and one from before anything that replaces it.
+const BAK_KEY = 'pylon.backups', BAK_WHY = { day: 'Start of the day', erase: 'Before progress was erased', load: 'Before another save was loaded' };
+function backups() {
+  try { const a = JSON.parse(localStorage.getItem(BAK_KEY) || '[]'); return Array.isArray(a) ? a.filter(b => b && typeof b.d === 'string' && typeof b.s === 'string' && BAK_WHY[b.w]) : []; }
+  catch (e) { return []; }
+}
+function backupNow(why) {
+  const n = totals().solved;
+  if (!n) return;
+  let list = backups();
+  if (why === 'day' && list.some(b => b.d === today() && b.w === 'day')) return;
+  list.push({ d: today(), w: why, n, s: JSON.stringify(S) });
+  list = list.slice(-4);
+  while (list.length) { try { localStorage.setItem(BAK_KEY, JSON.stringify(list)); return; } catch (e) { list.shift(); } }          // short of room: keep the newest
+}
+function baksHtml() {
+  const list = backups();
+  if (!list.length) return '<h3>Backups</h3><p class="mute">Pylon keeps a copy of your save from the start of each day you play, in this browser. There is none yet.</p>';
+  return '<h3>Backups</h3><p class="mute">Copies of your save that Pylon kept in this browser. Going back to one replaces the progress you have now.</p><ul class="baks">' +
+    list.map((b, k) => '<li><span>' + esc(b.d) + ' · ' + BAK_WHY[b.w] + ' · ' + (b.n | 0) + ' levels solved</span><button type="button" class="btn" data-bak="' + k + '">Go back to this</button></li>').reverse().join('') + '</ul>';
+}
+function restoreBackup(k) {
+  const b = backups()[k];
+  if (!b) return;
+  let d = null;
+  try { d = cleanSave(JSON.parse(b.s)); } catch (e) { d = null; }
+  if (!d) { toast('That backup could not be read.'); return; }
+  confirmBox('Go back to this backup?', 'Your progress becomes what it was on ' + b.d + ' (' + (b.n | 0) + ' levels solved). A copy of what you have now is kept as a backup first.', 'Go back', () => adoptSave(d));
+}
+
+function showRecord() {
+  Sfx.play('modal');
+  const t = totals(), mine = LEVELS.map(l => S.levels[l.id]).filter(Boolean), codeLevels = LEVELS.filter(l => l.kind === 'code').length;
+  const sum = f => mine.reduce((n, s) => n + (f(s) || 0), 0), n = k => S.counters[k] || 0;
+  const tile = (v, label) => '<div><b>' + v + '</b><span>' + label + '</span></div>';
+  const tiles = [
+    tile(fmtTime(S.pt), 'played'), tile(S.days.length, S.days.length === 1 ? 'day played' : 'days played'), tile(streak(), 'days in a row now'),
+    tile(t.solved + '<small> / ' + LEVELS.length + '</small>', 'levels solved'), tile(t.stars + '<small> / ' + LEVELS.length * 3 + '</small>', 'stars'),
+    tile(mine.filter(s => s.solved && s.stars === 3).length, 'levels with three stars'), tile(sum(s => bitCount(s.craft || 0)) + '<small> / ' + codeLevels * 4 + '</small>', 'craft marks'),
+    tile(n('runs'), 'runs of your code'), tile(sum(s => s.hints), 'hints taken'), tile(mine.filter(s => s.saw).length, 'model solutions opened'),
+    tile(n('reviews'), 'reviews passed'), tile(n('bugs'), 'planted bugs repaired'), tile(S.ivLog.length, 'interview rounds finished'),
+    tile(Object.keys(S.badges).length + '<small> / ' + BADGES.length + '</small>', 'badges'),
+  ];
+  const floors = ZONES.map(z => {
+    const ls = zoneLevels(z.n), done = ls.filter(l => isSolved(INDEX[l.id])).length, stars = ls.reduce((a, l) => a + (isSolved(INDEX[l.id]) ? S.levels[l.id].stars : 0), 0);
+    return '<li><span>' + z.n + ' · ' + esc(z.name) + '</span><span class="rec-bar"><i style="width:' + Math.round(100 * done / Math.max(1, ls.length)) + '%;background:' + z.color + '"></i></span><small>' + done + ' / ' + ls.length + ' · ' + stars + ' ★</small></li>';
+  }).join('');
+  const picks = [];
+  if (Saga && S.saga) for (const id of Object.keys(Saga.SCENES)) for (const l of Saga.SCENES[id]) {
+    if (!l.choice || !S.saga[l.choice]) continue;
+    const o = l.opts.find(x => x[0] === S.saga[l.choice]);
+    if (o) picks.push('<li><span>' + esc(l.q) + '</span><b>' + esc(o[1]) + '</b></li>');
+  }
+  modal('<div class="eyebrow">' + esc(RANKS[rankIndex()]) + '</div><h2>Career record</h2><div class="rec">' + tiles.join('') + '</div>' +
+    (t.solved > n('runs') ? '<p class="mute">Time played and runs are counted from Version 19 on, so an older save starts them low.</p>' : '') +
+    '<h3>The tower, floor by floor</h3><ul class="rec-floors">' + floors + '</ul>' +
+    (picks.length ? '<h3>What you decided</h3><ul class="rec-picks">' + picks.join('') + '</ul>' : '') +
+    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
+}
+function showCredits() {
+  Sfx.play('modal');
+  modal('<div class="credits"><div class="eyebrow">Version ' + VERSION + '</div><h2>Pylon</h2><dl>' +
+    '<dt>Design and direction</dt><dd>KA3L0Z</dd>' +
+    '<dt>Code, levels and story</dt><dd>Written with Claude, by Anthropic</dd>' +
+    '<dt>Python</dt><dd>An interpreter written for Pylon. It runs in this page, and nothing you type leaves it.</dd>' +
+    '<dt>3D</dt><dd>three.js, under the MIT licence</dd>' +
+    '<dt>Music</dt><dd>The tower score is composed in your browser as you play. The original track is “Pythonic Ambiance”.</dd>' +
+    '<dt>Playtesting</dt><dd>Thank you to everyone who played early builds and wrote down what was wrong with them.</dd></dl>' +
+    '<p class="mute">Pylon is an independent game. “Python” is a trademark of the Python Software Foundation, which has no part in it.</p>' +
+    '<p class="mute">The source is public at github.com/KA3L0Z/pylon.</p>' +
+    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div></div>');
+}
+// What a badge counts, for the bar under it while it is still out of reach.
+const BADGE_PROG = {
+  lab: c => [c.n('lab'), 5], oracle: c => [c.n('predict'), 10], clean: c => [c.three, 10], lean: c => [c.lean, 5], memory: c => [c.n('reviews'), 10],
+  streak3: c => [c.streak, 3], streak7: c => [c.streak, 7], boss: c => [c.bosses, 3], classic10: c => [c.classics, 10], classicAll: c => [c.classics, CLASSICS],
+  briefs: c => [c.n('briefs'), 20], craft10: c => [c.craft4, 10], bugs: c => [c.n('bugs'), 10], summit: c => [c.solved, LEVELS.length],
+  runs: c => [c.n('runs'), 250], prompt: c => [c.n('term'), 20], perfect: c => [c.three, LEVELS.length], boot: c => [c.rank, 1], senior: c => [c.rank, 7],
+};
+function showBadges() {
+  Sfx.play('modal');
+  const c = badgeFacts();
+  modal('<h2>Badges</h2><p class="mute">' + Object.keys(S.badges).length + ' of ' + BADGES.length + ' earned.</p><ul class="badges">' + BADGES.map(b => {
+    const got = S.badges[b.id], hide = b.secret && !got, p = !got && !hide && BADGE_PROG[b.id] ? BADGE_PROG[b.id](c) : null;
+    return '<li class="' + (got ? 'got' : '') + '"><span class="b-mark" aria-hidden="true">' + (got ? '★' : hide ? '?' : '·') + '</span><div><strong>' + esc(hide ? 'Secret' : b.name) + '</strong><small>' + esc(hide ? 'The tower keeps this one to itself for now.' : b.desc) + '</small>' +
+      (p ? '<span class="b-prog"><i style="width:' + Math.round(100 * Math.min(1, p[0] / Math.max(1, p[1]))) + '%"></i></span><small class="b-n">' + Math.min(p[0], p[1]) + ' of ' + p[1] + '</small>' : '') +
+      (got && got > 1e11 ? '<small class="b-n">Earned ' + esc(fmtDay(got)) + '</small>' : '') + '</div></li>';
+  }).join('') + '</ul><div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
+}
 function showIntro() {
   modal('<div class="intro"><div class="eyebrow">Signal tower · nine floors · one drone</div><h2>The Pylon has been dark for years.</h2>' +
     '<p>You are the new engineer. PIP, the maintenance drone, does exactly what your Python tells it to do, no more and no less.</p>' +
@@ -2224,7 +2365,7 @@ function showMenu() {
   Sfx.play('modal');
   modal('<h2>Menu</h2>' +
     (mode === 'hub' ? '<div class="goto"><button type="button" class="btn" id="btn-review2">Review' + (due ? ' <b>' + due + '</b>' : '') + '</button><button type="button" class="btn" id="btn-interview2">Challenges</button><button type="button" class="btn" id="btn-lab2">Scratchpad</button>' +
-      '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-log2">Tower log</button><button type="button" class="btn" id="btn-badges2">Badges</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
+      '<button type="button" class="btn" id="btn-codex2">Codex</button><button type="button" class="btn" id="btn-log2">Tower log</button><button type="button" class="btn" id="btn-badges2">Badges</button><button type="button" class="btn" id="btn-record2">Career record</button>' + (online() ? '<button type="button" class="btn" id="btn-board2">Leaderboard</button>' : '') + '</div>' : '') +
     '<h3>Sound</h3><div class="rows">' +
     '<div class="row"><label for="opt-music">Music</label><span class="vol"><input type="range" id="opt-music-vol" min="0" max="100" value="' + Math.round(S.musicVol * 100) + '" aria-label="Music volume"><input type="checkbox" id="opt-music"' + (S.music ? ' checked' : '') + '></span></div>' +
     (window.PylonScore ? '<div class="row"><span>Soundtrack<small>The tower score is written while you play. It follows the floor you are on, and it grows as the tower comes back online.</small></span><span class="segs">' +
@@ -2250,13 +2391,8 @@ function showMenu() {
     '<p class="mute">Music: the tower score is generated in your browser as you play. The original track is “Pythonic Ambiance”.' + (worksOffline() ? ' This copy of Pylon also starts without a connection.' : '') + '</p>' +
     '<h3>Your progress</h3><p class="mute">' + (Cloud.ready ? 'Saved to your Claude account and in this browser.' : 'Saved in this browser, on this device.') + ' A save code holds all of it as text: keep one as a backup, or use it to carry your progress to another browser.</p>' +
     '<div class="done-actions" style="margin-top:10px"><button type="button" class="btn" id="btn-savebox">Save code</button><button type="button" class="btn danger" id="menu-reset">Erase all progress</button></div>' +
-    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
-}
-function showBadges() {
-  Sfx.play('modal');
-  modal('<h2>Badges</h2><p class="mute">' + Object.keys(S.badges).length + ' of ' + BADGES.length + ' earned.</p><ul class="badges">' + BADGES.map(b =>
-    '<li class="' + (S.badges[b.id] ? 'got' : '') + '"><span class="b-mark" aria-hidden="true">' + (S.badges[b.id] ? '★' : '·') + '</span><div><strong>' + esc(b.name) + '</strong><small>' + esc(b.desc) + '</small></div></li>').join('') +
-    '</ul><div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button></div>', { wide: true });
+    '<div class="done-actions"><button type="button" class="btn" data-focus id="menu-close">Close</button><button type="button" class="btn ghost" id="btn-credits">Credits</button>' +
+    (mode === 'hub' && !Title.on ? '<button type="button" class="btn ghost" id="menu-title">Back to the title screen</button>' : '') + '</div>', { wide: true });
 }
 function showCodex(openId) {
   if (openId) {
@@ -2343,6 +2479,7 @@ function bind() {
     if (t.dataset.trk) { S.track = t.dataset.trk; save(); Music.apply(); document.querySelectorAll('[data-trk]').forEach(b => b.classList.toggle('on', b.dataset.trk === (S.track === 'classic' ? 'classic' : 'score'))); return; }
     if (t.dataset.ts !== undefined) { S.ts = +t.dataset.ts || 0; save(); applyComfort(); document.querySelectorAll('[data-ts]').forEach(b => b.classList.toggle('on', +b.dataset.ts === S.ts)); return; }
     if (t.dataset.codex) { showCodex(t.dataset.codex); return; }
+    if (t.dataset.bak !== undefined) { restoreBackup(+t.dataset.bak); return; }
     if (t.dataset.trace !== undefined) { startTrace(+t.dataset.trace); return; }
     if (t.dataset.iv) { closeModal(); startInterview(t.dataset.iv); return; }
     if (t.dataset.ivgo !== undefined) { if (+t.dataset.ivgo !== (S.iv && S.iv.at)) enterInterview(+t.dataset.ivgo); return; }
@@ -2406,6 +2543,12 @@ function bind() {
       case 'btn-board': case 'btn-board2': Sfx.play('modal'); showBoard(); break;
       case 'board-toggle': S.board = !S.board; save(); if (S.board) Cloud.flushNow().then(showBoard); else Cloud.leave().then(showBoard); break;
       case 'menu-close': closeModal(); break;
+      case 'title-go': Sfx.play('select'); Title.hide(true); break;
+      case 'title-record': case 'btn-record2': showRecord(); break;
+      case 'title-badges': showBadges(); break;
+      case 'title-settings': showMenu(); break;
+      case 'title-credits': case 'btn-credits': showCredits(); break;
+      case 'menu-title': closeModal(); Title.show(); break;
       case 'opt-full': toggleFull(); break;
       case 'opt-install': if (installEvt) { const ev = installEvt; installEvt = null; closeModal(); try { ev.prompt(); } catch (err) { /* the browser declined */ } } break;
       case 'btn-tour':
@@ -2419,8 +2562,9 @@ function bind() {
       case 'bug-start': case 'bug-again': startBug(); break;
       case 'coach-next': Tour.next(); break;
       case 'coach-skip': Tour.end(); break;
-      case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge, review date and saved piece of code will be removed. This cannot be undone.', 'Erase everything', () => {
+      case 'menu-reset': confirmBox('Erase all progress?', 'Every solved level, star, badge, review date and saved piece of code will be removed. Pylon keeps one backup of it in this browser, under Save code.', 'Erase everything', () => {
         const keep = { sound: S.sound, music: S.music, musicVol: S.musicVol, sfxVol: S.sfxVol, board: S.board, ac: S.ac, gfx: S.gfx, ts: S.ts, calm: S.calm, hc: S.hc, track: S.track };
+        backupNow('erase');
         clearInterval(ivTimer);
         S = Object.assign({ v: 1, cv: 3, levels: {}, unlockAll: false, intro: true, last: null, open: null, speed: 1, days: [], badges: {}, counters: {}, bonus: 0, rvDay: null, iv: null, ivLog: [], t: 0 }, keep);
         save(); if (mode === 'level') closeLevel(); selectLevel(0, true); refreshProgress(); toast('Progress erased.');
@@ -2457,6 +2601,7 @@ function bind() {
   document.addEventListener('keydown', e => {
     Music.start();
     if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
+    if (Title.on) return;
     if (e.key === 'Escape' && Tour.on) { e.preventDefault(); Tour.end(); return; }
     const a = document.activeElement, typing = a && /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName) && a.type !== 'range', onButton = a && a.tagName === 'BUTTON';
     if (mode === 'hub' && !typing) {
@@ -2495,6 +2640,7 @@ function watchViewport() {
 // ---------------------------------------------------------------- boot
 function boot() {
   loadLocal();
+  backupNow('day');
   applyComfort();
   if (!LEVELS.length) { document.body.textContent = 'Pylon could not load its levels.'; return; }
   editor = window.PylonEditor($('editor'), { onRun: run, onChange: onCodeChange, strip: $('ac-strip'), complete: S.ac, onPick });
@@ -2518,8 +2664,7 @@ function boot() {
       else { play = { mode: 'interview' }; finishInterview(true); play = { mode: 'normal' }; }
     } else if (S.open === 'sandbox') enter(SANDBOX);
     else if (S.open && INDEX[S.open] !== undefined && isUnlocked(INDEX[S.open])) openLevel(INDEX[S.open]);
-    else if (!S.intro) showIntro();
-    else if (S.grew) showGrew();
+    else Title.show(() => { if (!S.intro) showIntro(); else if (S.grew) showGrew(); });
   };
   const ready = RealWorld.ok ? RealWorld.init($('stage'), $('gl'), { levels: LEVELS, zones: ZONES }, { onSelect: i => { Sfx.play('select'); selectLevel(i); }, onOpen: openLevel, sfx: Sfx.play }) : Promise.resolve(false);
   ready.then(ok => { if (!ok) { RealWorld.ok = false; $('nogl').hidden = false; } start(); }).catch(() => { RealWorld.ok = false; $('nogl').hidden = false; start(); });
@@ -2533,6 +2678,7 @@ function boot() {
     if (S.intro && $('modal-body').querySelector('.intro')) closeModal();
     selectLevel(S.last && INDEX[S.last] !== undefined ? INDEX[S.last] : Math.max(0, nextIndex()), true);
     refreshProgress();
+    Title.refresh();
     Music.apply();
   });
   Mentor.init();
